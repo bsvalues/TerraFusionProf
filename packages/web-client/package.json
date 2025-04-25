@@ -1,7 +1,7 @@
 {
   "name": "@terrafusionpro/web-client",
   "version": "1.0.0",
-  "description": "Web client for TerraFusionPro platform",
+  "description": "TerraFusionPro Web Client Application",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -17,10 +17,8 @@
   "author": "TerraFusionPro Team",
   "license": "UNLICENSED",
   "dependencies": {
-    "express": "^4.18.2",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.15.0"
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

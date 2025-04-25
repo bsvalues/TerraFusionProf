@@ -6,67 +6,45 @@
  * be used with caution in production.
  */
 
-import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { Pool } from 'pg';
-import * as schema from '../schema/index.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs';
+import { db, schema } from '../storage.js';
+import { sql } from 'drizzle-orm';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
-const execAsync = promisify(exec);
+// Get the current directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configuration
-const dbConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' 
-    ? { rejectUnauthorized: false } 
-    : false
-};
+// Migrations folder path
+const MIGRATIONS_FOLDER = path.join(__dirname, '../migrations');
 
-// Migrations directory
-const migrationsDir = path.join(__dirname, '../migrations');
-
-// Ensure migrations directory exists
-if (!fs.existsSync(migrationsDir)) {
-  fs.mkdirSync(migrationsDir, { recursive: true });
+// Create migrations folder if it doesn't exist
+if (!fs.existsSync(MIGRATIONS_FOLDER)) {
+  fs.mkdirSync(MIGRATIONS_FOLDER, { recursive: true });
 }
 
-// Create connection pool and Drizzle instance
-const pool = new Pool(dbConfig);
-const db = drizzle(pool, { schema });
-
+/**
+ * Push schema changes to the database
+ */
 async function push() {
   try {
-    console.log('Connecting to database...');
+    console.log(`Pushing schema changes to database...`);
     
-    // Test the connection
-    const client = await pool.connect();
-    console.log('Database connection successful');
-    client.release();
+    // Create schema if it doesn't exist
+    await db.execute(sql`
+      CREATE SCHEMA IF NOT EXISTS public;
+    `);
     
-    // Generate migrations
-    console.log('Generating migrations...');
+    // Run migrations
+    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
     
-    await execAsync(`npx drizzle-kit generate:pg --schema=./schema/index.js --out=./migrations`);
-    
-    console.log('Migrations generated successfully');
-    
-    // Apply migrations
-    console.log('Applying migrations...');
-    
-    await migrate(db, { migrationsFolder: migrationsDir });
-    
-    console.log('Database schema updated successfully');
+    console.log('Schema changes successfully applied to database');
+    process.exit(0);
   } catch (error) {
-    console.error('Failed to update database schema:', error);
+    console.error('Error pushing schema changes:', error);
     process.exit(1);
-  } finally {
-    await pool.end();
   }
 }
 

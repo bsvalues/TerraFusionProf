@@ -5,68 +5,72 @@
  * It uses Drizzle ORM to define tables, relationships, and types.
  */
 
-import { pgTable, serial, text, timestamp, boolean, integer, jsonb, uuid, pgEnum, foreignKey } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, serial, uuid, varchar, text, integer, decimal, boolean, timestamp, json, uniqueIndex, foreignKey } from 'drizzle-orm/pg-core';
 
-// Create enums for various entity statuses and types
+// Define enums
 export const userRoleEnum = pgEnum('user_role', ['admin', 'appraiser', 'reviewer', 'client', 'field_agent']);
 export const propertyTypeEnum = pgEnum('property_type', ['residential', 'commercial', 'industrial', 'land', 'mixed_use']);
 export const reportStatusEnum = pgEnum('report_status', ['draft', 'pending_review', 'in_review', 'approved', 'finalized', 'archived']);
 export const formTypeEnum = pgEnum('form_type', ['property_details', 'site_inspection', 'valuation', 'comparable', 'environmental']);
+export const propertyImageTypeEnum = pgEnum('image_type', ['exterior', 'interior', 'aerial', 'site', 'floor_plan', 'other']);
 
-// Users table
+// Define tables
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   uuid: uuid('uuid').defaultRandom().notNull().unique(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  firstName: text('first_name').notNull(),
-  lastName: text('last_name').notNull(),
-  role: userRoleEnum('role').notNull().default('appraiser'),
-  organization: text('organization'),
-  phone: text('phone'),
-  isActive: boolean('is_active').notNull().default(true),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  firstName: varchar('first_name', { length: 100 }).notNull(),
+  lastName: varchar('last_name', { length: 100 }).notNull(),
+  role: userRoleEnum('role').default('appraiser').notNull(),
+  organization: varchar('organization', { length: 255 }),
+  phone: varchar('phone', { length: 50 }),
+  isActive: boolean('is_active').default(true).notNull(),
+  lastLogin: timestamp('last_login'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  lastLogin: timestamp('last_login'),
-  preferences: jsonb('preferences').default({})
+  preferences: json('preferences').default({})
 });
 
-// Properties table
 export const properties = pgTable('properties', {
   id: serial('id').primaryKey(),
   uuid: uuid('uuid').defaultRandom().notNull().unique(),
-  address: text('address').notNull(),
-  city: text('city').notNull(),
-  state: text('state').notNull(),
-  zipCode: text('zip_code').notNull(),
+  address: varchar('address', { length: 255 }).notNull(),
+  city: varchar('city', { length: 100 }).notNull(),
+  state: varchar('state', { length: 100 }).notNull(),
+  zipCode: varchar('zip_code', { length: 20 }).notNull(),
+  latitude: decimal('latitude', { precision: 10, scale: 7 }),
+  longitude: decimal('longitude', { precision: 10, scale: 7 }),
   propertyType: propertyTypeEnum('property_type').notNull(),
   yearBuilt: integer('year_built'),
   squareFeet: integer('square_feet'),
-  lotSize: text('lot_size'),
+  lotSize: decimal('lot_size', { precision: 12, scale: 2 }),
   bedrooms: integer('bedrooms'),
-  bathrooms: integer('bathrooms'),
+  bathrooms: decimal('bathrooms', { precision: 3, scale: 1 }),
+  floors: integer('floors'),
+  basement: boolean('basement').default(false),
+  garage: integer('garage'),
+  pool: boolean('pool').default(false),
   description: text('description'),
-  parcelNumber: text('parcel_number'),
-  location: jsonb('location'), // For GeoJSON coordinates
+  parcelNumber: varchar('parcel_number', { length: 50 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   createdById: integer('created_by_id').references(() => users.id),
-  metadata: jsonb('metadata').default({})
+  metadata: json('metadata').default({})
 });
 
-// Property Images table
 export const propertyImages = pgTable('property_images', {
   id: serial('id').primaryKey(),
-  propertyId: integer('property_id').notNull().references(() => properties.id),
-  url: text('url').notNull(),
-  caption: text('caption'),
-  isPrimary: boolean('is_primary').default(false),
-  type: text('type').default('exterior'), // exterior, interior, aerial, etc.
+  uuid: uuid('uuid').defaultRandom().notNull().unique(),
+  propertyId: integer('property_id').notNull().references(() => properties.id, { onDelete: 'cascade' }),
+  url: varchar('url', { length: 500 }).notNull(),
+  caption: varchar('caption', { length: 500 }),
+  type: propertyImageTypeEnum('type').default('exterior').notNull(),
+  sortOrder: integer('sort_order').default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  metadata: jsonb('metadata').default({})
+  uploadedById: integer('uploaded_by_id').references(() => users.id)
 });
 
-// Appraisal Reports table
 export const appraisalReports = pgTable('appraisal_reports', {
   id: serial('id').primaryKey(),
   uuid: uuid('uuid').defaultRandom().notNull().unique(),
@@ -74,66 +78,71 @@ export const appraisalReports = pgTable('appraisal_reports', {
   appraiserId: integer('appraiser_id').notNull().references(() => users.id),
   reviewerId: integer('reviewer_id').references(() => users.id),
   clientId: integer('client_id').references(() => users.id),
-  status: reportStatusEnum('status').notNull().default('draft'),
-  reportDate: timestamp('report_date'),
-  effectiveDate: timestamp('effective_date'),
-  value: integer('value'), // Appraised value in cents
-  purpose: text('purpose'),
+  status: reportStatusEnum('status').default('draft').notNull(),
+  reportDate: timestamp('report_date').notNull(),
+  effectiveDate: timestamp('effective_date').notNull(),
+  value: integer('value'),
+  purpose: varchar('purpose', { length: 255 }),
   methodology: text('methodology'),
   notes: text('notes'),
-  pdfUrl: text('pdf_url'),
+  pdfUrl: varchar('pdf_url', { length: 500 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  data: jsonb('data').default({})
+  data: json('data').default({})
 });
 
-// Comparable Properties table
 export const comparables = pgTable('comparables', {
   id: serial('id').primaryKey(),
-  reportId: integer('report_id').notNull().references(() => appraisalReports.id),
-  address: text('address').notNull(),
-  city: text('city').notNull(),
-  state: text('state').notNull(),
-  zipCode: text('zip_code').notNull(),
-  saleDate: timestamp('sale_date'),
-  salePrice: integer('sale_price'), // Price in cents
-  squareFeet: integer('square_feet'),
+  uuid: uuid('uuid').defaultRandom().notNull().unique(),
+  reportId: integer('report_id').notNull().references(() => appraisalReports.id, { onDelete: 'cascade' }),
+  propertyId: integer('property_id').references(() => properties.id),
+  address: varchar('address', { length: 255 }).notNull(),
+  city: varchar('city', { length: 100 }).notNull(),
+  state: varchar('state', { length: 100 }).notNull(),
+  zipCode: varchar('zip_code', { length: 20 }).notNull(),
+  propertyType: propertyTypeEnum('property_type').notNull(),
   yearBuilt: integer('year_built'),
+  squareFeet: integer('square_feet'),
+  lotSize: decimal('lot_size', { precision: 12, scale: 2 }),
   bedrooms: integer('bedrooms'),
-  bathrooms: integer('bathrooms'),
-  adjustments: jsonb('adjustments').default({}),
-  adjustedPrice: integer('adjusted_price'), // Adjusted price in cents
-  description: text('description'),
-  imageUrl: text('image_url'),
-  createdAt: timestamp('created_at').defaultNow().notNull()
+  bathrooms: decimal('bathrooms', { precision: 3, scale: 1 }),
+  salePrice: integer('sale_price').notNull(),
+  saleDate: timestamp('sale_date').notNull(),
+  distanceFromSubject: decimal('distance_from_subject', { precision: 5, scale: 2 }),
+  adjustments: json('adjustments').default({}),
+  totalAdjustment: integer('total_adjustment'),
+  adjustedPrice: integer('adjusted_price'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  source: varchar('source', { length: 100 })
 });
 
-// Forms table for dynamic form definitions
 export const forms = pgTable('forms', {
   id: serial('id').primaryKey(),
-  name: text('name').notNull(),
+  uuid: uuid('uuid').defaultRandom().notNull().unique(),
+  name: varchar('name', { length: 255 }).notNull(),
   type: formTypeEnum('type').notNull(),
-  schema: jsonb('schema').notNull(), // JSON Schema defining the form
-  version: text('version').notNull(),
-  isActive: boolean('is_active').notNull().default(true),
+  schema: json('schema').notNull(),
+  version: varchar('version', { length: 20 }).default('1.0.0').notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   createdById: integer('created_by_id').references(() => users.id)
 });
 
-// Form Submissions table
 export const formSubmissions = pgTable('form_submissions', {
   id: serial('id').primaryKey(),
+  uuid: uuid('uuid').defaultRandom().notNull().unique(),
   formId: integer('form_id').notNull().references(() => forms.id),
   propertyId: integer('property_id').references(() => properties.id),
   reportId: integer('report_id').references(() => appraisalReports.id),
   submittedById: integer('submitted_by_id').notNull().references(() => users.id),
-  data: jsonb('data').notNull(), // Form submission data
   submittedAt: timestamp('submitted_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull()
+  data: json('data').notNull(),
+  updatedAt: timestamp('updated_at')
 });
 
-// Export the schema
+// Export the schema as an object
 export const schema = {
   users,
   properties,
@@ -143,5 +152,3 @@ export const schema = {
   forms,
   formSubmissions
 };
-
-export default schema;

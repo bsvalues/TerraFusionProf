@@ -14,8 +14,16 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "ajv": "^8.17.1",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "drizzle-orm": "^0.43.0",
     "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "http-proxy-middleware": "^3.0.5",
+    "jsonwebtoken": "^9.0.2",
     "nodemon": "^3.1.10",
+    "pg": "^8.15.5",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.5.2"

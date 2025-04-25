@@ -5,23 +5,37 @@
  * It's a shared utility used across multiple services in the platform.
  */
 
+import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { Pool } from 'pg';
+import { sql } from 'drizzle-orm';
 import * as schema from './schema/index.js';
 
-// Database configuration
-const dbConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' 
-    ? { rejectUnauthorized: false } 
-    : false
-};
+// Get database connection details from environment variables
+const {
+  PGHOST,
+  PGUSER,
+  PGPASSWORD,
+  PGDATABASE,
+  PGPORT,
+  DATABASE_URL
+} = process.env;
 
-// Create connection pool
-const pool = new Pool(dbConfig);
+// Create a connection pool
+const connectionConfig = DATABASE_URL
+  ? { connectionString: DATABASE_URL }
+  : {
+      host: PGHOST,
+      user: PGUSER,
+      password: PGPASSWORD,
+      database: PGDATABASE,
+      port: PGPORT ? parseInt(PGPORT, 10) : 5432,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    };
 
-// Create Drizzle instance with schema
+const pool = new pg.Pool(connectionConfig);
+
+// Initialize drizzle ORM with our schema
 export const db = drizzle(pool, { schema });
 
 /**
@@ -29,13 +43,15 @@ export const db = drizzle(pool, { schema });
  * @param {string} migrationsFolder - Path to migrations folder
  */
 export const runMigrations = async (migrationsFolder) => {
+  console.log(`Running migrations from ${migrationsFolder}`);
+  
   try {
-    console.log(`Running migrations from ${migrationsFolder}...`);
     await migrate(db, { migrationsFolder });
     console.log('Migrations completed successfully');
+    return true;
   } catch (error) {
-    console.error('Migration failed:', error);
-    throw error;
+    console.error('Error running migrations:', error);
+    return false;
   }
 };
 
@@ -44,15 +60,12 @@ export const runMigrations = async (migrationsFolder) => {
  */
 export const initializeDatabase = async () => {
   try {
-    // Test the connection
-    const client = await pool.connect();
-    const result = await client.query('SELECT NOW()');
-    client.release();
-    
-    console.log('Database connection successful:', result.rows[0].now);
+    // Perform a simple query to verify connection
+    await db.execute(sql`SELECT 1`);
+    console.log('Database connection established');
     return true;
   } catch (error) {
-    console.error('Database connection failed:', error);
+    console.error('Error connecting to database:', error);
     return false;
   }
 };
@@ -63,19 +76,12 @@ export const initializeDatabase = async () => {
 export const closeDatabase = async () => {
   try {
     await pool.end();
-    console.log('Database connection pool closed');
+    console.log('Database connection closed');
+    return true;
   } catch (error) {
     console.error('Error closing database connection:', error);
+    return false;
   }
 };
 
-// Export schema for convenience
 export { schema };
-
-export default {
-  db,
-  runMigrations,
-  initializeDatabase,
-  closeDatabase,
-  schema
-};
