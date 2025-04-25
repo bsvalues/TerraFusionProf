@@ -1,10 +1,28 @@
 /**
- * Absolutely Basic TerraFusionPro Web Client 
+ * Absolutely Basic TerraFusionPro Web Client with plain Node.js HTTP
  */
 
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get the directory name
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PORT = process.env.WEB_CLIENT_PORT || 5000;
+
+const CONTENT_TYPES = {
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'text/javascript',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml'
+};
 
 const server = http.createServer((req, res) => {
   // Set CORS headers
@@ -12,121 +30,47 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
-  // Return HTML content
-  if (req.url === '/' || req.url === '/index.html') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    
-    const html = `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>TerraFusionPro</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f4f4;
-          }
-          .container {
-            width: 80%;
-            margin: 0 auto;
-            padding: 20px;
-          }
-          header {
-            background-color: #35424a;
-            color: white;
-            padding: 20px;
-            text-align: center;
-          }
-          .content {
-            margin-top: 20px;
-            background: white;
-            padding: 20px;
-            border-radius: 5px;
-          }
-          footer {
-            background-color: #35424a;
-            color: white;
-            text-align: center;
-            padding: 10px;
-            position: fixed;
-            bottom: 0;
-            width: 100%;
-          }
-          .status {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #ebebeb;
-            border-radius: 5px;
-          }
-          .status-item {
-            margin: 10px 0;
-            display: flex;
-            justify-content: space-between;
-          }
-          .status-online {
-            color: green;
-            font-weight: bold;
-          }
-          .status-offline {
-            color: red;
-            font-weight: bold;
-          }
-        </style>
-      </head>
-      <body>
-        <header>
-          <h1>TerraFusionPro Real Estate Appraisal Platform</h1>
-        </header>
-        
-        <div class="container">
-          <div class="content">
-            <h2>Welcome to TerraFusionPro</h2>
-            <p>A comprehensive real estate appraisal platform leveraging microservices architecture.</p>
-            
-            <div class="status">
-              <h3>System Status</h3>
-              
-              <div class="status-item">
-                <span>API Gateway</span>
-                <span class="status-online">Online</span>
-              </div>
-              
-              <div class="status-item">
-                <span>Property Service</span>
-                <span class="status-online">Online</span>
-              </div>
-              
-              <div class="status-item">
-                <span>User Service</span>
-                <span class="status-online">Online</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <footer>
-          <p>TerraFusionPro &copy; 2025</p>
-        </footer>
-      </body>
-      </html>
-    `;
-    
-    res.end(html);
-    return;
-  }
+  // Parse the URL
+  let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
   
-  // 404 Not Found for any other route
-  res.writeHead(404, { 'Content-Type': 'text/plain' });
-  res.end('Not Found');
+  // Get the file extension
+  const extname = path.extname(filePath);
+  
+  // Default to text/html for unspecified content types
+  let contentType = CONTENT_TYPES[extname] || 'text/html';
+  
+  // Read the file
+  fs.readFile(filePath, (err, content) => {
+    if (err) {
+      if (err.code === 'ENOENT') {
+        // Page not found - return index.html
+        fs.readFile(path.join(__dirname, 'public', 'index.html'), (err, content) => {
+          if (err) {
+            // If even the index file is missing, return 500
+            res.writeHead(500);
+            res.end('Server Error: Could not find index.html');
+            return;
+          }
+          
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(content, 'utf8');
+        });
+      } else {
+        // Server error
+        res.writeHead(500);
+        res.end(`Server Error: ${err.code}`);
+      }
+    } else {
+      // Success
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(content, 'utf8');
+    }
+  });
 });
 
 // Start server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('Absolutely basic web client running on port ' + PORT);
+  console.log(`Basic web client running on port ${PORT}`);
 });
 
 export default server;
