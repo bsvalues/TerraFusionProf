@@ -85,11 +85,10 @@ CREATE TABLE IF NOT EXISTS users (
     last_name VARCHAR(100) NOT NULL,
     role user_role NOT NULL DEFAULT 'appraiser',
     company VARCHAR(255),
-    phone_number VARCHAR(20),
-    license_number VARCHAR(50),
-    license_state VARCHAR(2),
-    profile_image_url TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    phone VARCHAR(20),
+    avatar VARCHAR(255),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_login TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -247,7 +246,7 @@ CREATE INDEX IF NOT EXISTS idx_market_data_location ON market_data(location);
 CREATE INDEX IF NOT EXISTS idx_market_data_property_type ON market_data(property_type);
 
 -- Insert demo admin user for testing (password is hashed version of 'admin123')
-INSERT INTO users (email, password, first_name, last_name, role, is_active)
+INSERT INTO users (email, password, first_name, last_name, role, active)
 VALUES (
     'admin@terrafusionpro.com',
     '$2a$10$OaJI4B9VsRsvkbLlA5HTM.eiIlZMnIxfljyS2LVAW1CInoHKlQRtW',

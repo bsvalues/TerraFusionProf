@@ -23,11 +23,10 @@ export const users = pgTable('users', {
   lastName: varchar('last_name', { length: 100 }).notNull(),
   role: userRoleEnum('role').notNull().default('appraiser'),
   company: varchar('company', { length: 255 }),
-  phoneNumber: varchar('phone_number', { length: 20 }),
-  licenseNumber: varchar('license_number', { length: 50 }),
-  licenseState: varchar('license_state', { length: 2 }),
-  profileImageUrl: text('profile_image_url'),
-  isActive: boolean('is_active').notNull().default(true),
+  phone: varchar('phone', { length: 20 }),
+  avatar: varchar('avatar', { length: 255 }),
+  active: boolean('active').notNull().default(true),
+  lastLogin: timestamp('last_login'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 });
