@@ -1,15 +1,10 @@
 /**
- * Database Schema Push Script
+ * Database Initialization Script
  * 
- * This script uses Drizzle Kit to push schema changes to the database.
- * It's a safer alternative to SQL migrations for development, but should
- * be used with caution in production.
+ * This script initializes the database with the required schema.
  */
 
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
-import * as schema from '../schema/index.js';
 
 // Get database connection string from environment variables
 const connectionString = process.env.DATABASE_URL;
@@ -20,31 +15,32 @@ if (!connectionString) {
 }
 
 /**
- * Push schema changes to the database
+ * Initialize the database schema
  */
-async function push() {
-  console.log('Pushing schema changes to database...');
+async function initializeDatabase() {
+  console.log('Initializing database schema...');
   
-  // Create a single client connection for the migration
+  // Create a single client connection
   const client = new pg.Client({ connectionString });
   
   try {
     await client.connect();
+    console.log('Connected to database');
     
-    // Generate SQL for migration
-    const sql = await generateMigrationSql();
-    console.log('Migration SQL:');
-    console.log(sql);
+    // Generate SQL for schema creation
+    const sql = generateSchemaSql();
     
-    // Create Drizzle ORM instance
-    const db = drizzle(client, { schema });
+    // Execute SQL in a transaction
+    await client.query('BEGIN');
     
-    // Execute SQL migration
+    console.log('Executing schema creation SQL...');
     await client.query(sql);
     
-    console.log('Schema changes applied successfully.');
+    await client.query('COMMIT');
+    console.log('Database schema initialized successfully');
   } catch (error) {
-    console.error('Error pushing schema changes:', error);
+    await client.query('ROLLBACK');
+    console.error('Error initializing database schema:', error);
     process.exit(1);
   } finally {
     await client.end();
@@ -52,14 +48,11 @@ async function push() {
 }
 
 /**
- * Generate SQL migration from schema
- * @returns {string} SQL migration
+ * Generate SQL for schema creation
+ * @returns {string} SQL string
  */
-async function generateMigrationSql() {
-  // For this example, we'll create a mock SQL migration
-  // In a real implementation, this would use Drizzle's SQL generation API
-  
-  const sql = `
+function generateSchemaSql() {
+  return `
 -- Create enum types if they don't exist
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
@@ -252,10 +245,20 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form_id ON form_submissions(form
 CREATE INDEX IF NOT EXISTS idx_form_submissions_report_id ON form_submissions(report_id);
 CREATE INDEX IF NOT EXISTS idx_market_data_location ON market_data(location);
 CREATE INDEX IF NOT EXISTS idx_market_data_property_type ON market_data(property_type);
-  `;
-  
-  return sql;
+
+-- Insert demo admin user for testing (password is hashed version of 'admin123')
+INSERT INTO users (email, password, first_name, last_name, role, is_active)
+VALUES (
+    'admin@terrafusionpro.com',
+    '$2a$10$OaJI4B9VsRsvkbLlA5HTM.eiIlZMnIxfljyS2LVAW1CInoHKlQRtW',
+    'Admin',
+    'User',
+    'admin',
+    TRUE
+)
+ON CONFLICT (email) DO NOTHING;
+`;
 }
 
-// Run the push function
-push();
+// Run the initialization function
+initializeDatabase();
