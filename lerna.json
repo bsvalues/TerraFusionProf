@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "npmClient": "npm",
+  "useWorkspaces": true,
+  "packages": [
+    "packages/*",
+    "services/*"
+  ],
+  "command": {
+    "publish": {
+      "conventionalCommits": true,
+      "message": "chore(release): publish %s"
+    },
+    "version": {
+      "conventionalCommits": true,
+      "message": "chore(release): version %s"
+    }
+  }
+}

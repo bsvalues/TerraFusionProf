@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:5.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-terrafusion}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+
+  postgres:
+    image: postgres:14
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${PGUSER:-terrafusion}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-password}
+      POSTGRES_DB: ${PGDATABASE:-terrafusion}
+
+  redis:
+    image: redis:6.2
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: ./packages/api/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - mongodb
+      - redis
+      - property-service
+      - user-service
+      - form-service
+
+  property-service:
+    build:
+      context: .
+      dockerfile: ./services/property-service/Dockerfile
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-terrafusion}:${MONGO_PASSWORD:-password}@mongodb:27017/terrafusion
+    depends_on:
+      - mongodb
+
+  user-service:
+    build:
+      context: .
+      dockerfile: ./services/user-service/Dockerfile
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_URI=postgresql://${PGUSER:-terrafusion}:${PGPASSWORD:-password}@postgres:5432/${PGDATABASE:-terrafusion}
+      - REDIS_URI=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+  form-service:
+    build:
+      context: .
+      dockerfile: ./services/form-service/Dockerfile
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-terrafusion}:${MONGO_PASSWORD:-password}@mongodb:27017/terrafusion
+    depends_on:
+      - mongodb
+
+  web-client:
+    build:
+      context: .
+      dockerfile: ./packages/web-client/Dockerfile
+    ports:
+      - "5000:80"
+    environment:
+      - API_URL=http://api-gateway:3000
+    depends_on:
+      - api-gateway
+
+volumes:
+  mongodb_data:
+  postgres_data:
+  redis_data:
