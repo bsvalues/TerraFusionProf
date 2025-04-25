@@ -58,8 +58,10 @@ const htmlContent = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TerraFusionPro</title>
+  <link rel="stylesheet" href="/global.css">
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-router-dom@6.3.0/umd/react-router-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     :root {
@@ -900,9 +902,18 @@ const htmlContent = `<!DOCTYPE html>
       );
     };
     
-    // Render the App
+    // Destructure for easier usage
+    const { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useParams, useLocation } = ReactRouterDOM;
+    
+    // Render the App with Router
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    root.render(
+      <BrowserRouter>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </BrowserRouter>
+    );
   </script>
 </body>
 </html>`;
