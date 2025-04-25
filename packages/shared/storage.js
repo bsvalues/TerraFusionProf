@@ -5,37 +5,28 @@
  * It's a shared utility used across multiple services in the platform.
  */
 
-import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { sql } from 'drizzle-orm';
-import * as schema from './schema/index.js';
+import pg from 'pg';
+import { schema } from './schema/index.js';
 
-// Get database connection details from environment variables
-const {
-  PGHOST,
-  PGUSER,
-  PGPASSWORD,
-  PGDATABASE,
-  PGPORT,
-  DATABASE_URL
-} = process.env;
+// Create a PostgreSQL connection pool
+const { Pool } = pg;
 
-// Create a connection pool
-const connectionConfig = DATABASE_URL
-  ? { connectionString: DATABASE_URL }
-  : {
-      host: PGHOST,
-      user: PGUSER,
-      password: PGPASSWORD,
-      database: PGDATABASE,
-      port: PGPORT ? parseInt(PGPORT, 10) : 5432,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-    };
+// Database connection configuration from environment variables
+const poolConfig = {
+  connectionString: process.env.DATABASE_URL,
+  // Additional pool configuration
+  max: 10, // Maximum number of clients in the pool
+  idleTimeoutMillis: 30000, // How long a client is allowed to remain idle before being closed
+  connectionTimeoutMillis: 5000, // How long to wait for a connection to become available
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+};
 
-const pool = new pg.Pool(connectionConfig);
+// Create connection pool
+const pool = new Pool(poolConfig);
 
-// Initialize drizzle ORM with our schema
+// Create Drizzle ORM instance with schema
 export const db = drizzle(pool, { schema });
 
 /**
@@ -43,15 +34,13 @@ export const db = drizzle(pool, { schema });
  * @param {string} migrationsFolder - Path to migrations folder
  */
 export const runMigrations = async (migrationsFolder) => {
-  console.log(`Running migrations from ${migrationsFolder}`);
-  
   try {
+    console.log(`Running migrations from ${migrationsFolder}...`);
     await migrate(db, { migrationsFolder });
-    console.log('Migrations completed successfully');
-    return true;
+    console.log('Migrations complete.');
   } catch (error) {
     console.error('Error running migrations:', error);
-    return false;
+    throw error;
   }
 };
 
@@ -60,13 +49,19 @@ export const runMigrations = async (migrationsFolder) => {
  */
 export const initializeDatabase = async () => {
   try {
-    // Perform a simple query to verify connection
-    await db.execute(sql`SELECT 1`);
-    console.log('Database connection established');
+    // Test database connection
+    const testClient = await pool.connect();
+    console.log('Database connection established.');
+    
+    // Run a simple query to verify connection is working
+    const result = await testClient.query('SELECT NOW()');
+    console.log(`Database health check successful at ${result.rows[0].now}`);
+    
+    testClient.release();
     return true;
   } catch (error) {
-    console.error('Error connecting to database:', error);
-    return false;
+    console.error('Database initialization error:', error);
+    throw error;
   }
 };
 
@@ -76,12 +71,29 @@ export const initializeDatabase = async () => {
 export const closeDatabase = async () => {
   try {
     await pool.end();
-    console.log('Database connection closed');
-    return true;
+    console.log('Database connection pool closed.');
   } catch (error) {
-    console.error('Error closing database connection:', error);
-    return false;
+    console.error('Error closing database connection pool:', error);
+    throw error;
   }
 };
 
-export { schema };
+// Handle process termination to properly close database connections
+process.on('SIGINT', async () => {
+  console.log('Closing database connections due to application termination');
+  await closeDatabase();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('Closing database connections due to application termination');
+  await closeDatabase();
+  process.exit(0);
+});
+
+export default {
+  db,
+  runMigrations,
+  initializeDatabase,
+  closeDatabase
+};

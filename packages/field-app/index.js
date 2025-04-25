@@ -5,415 +5,493 @@
  * and on-site appraisal activities.
  */
 
-import express from 'express';
-import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import http from 'http';
 
-// Get the current directory path (since __dirname is not available in ES modules)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const PORT = process.env.FIELD_APP_PORT || 5001;
 
-// Initialize Express app
-const app = express();
-const PORT = process.env.PORT || 5003;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
-// API info/health endpoint
-app.get('/api/info', (req, res) => {
-  res.json({
-    name: 'TerraFusionPro Field App',
-    version: '1.0.0',
-    status: 'healthy',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// API endpoints for field app-specific functionality
-
-// Get active inspection assignments
-app.get('/api/assignments', (req, res) => {
-  // In a real implementation, this would query a database
-  res.json({
-    data: [
-      {
-        id: 'assignment-001',
-        propertyId: 'property-123',
-        address: '123 Main St, Anytown, CA 94321',
-        dueDate: '2025-05-15',
-        status: 'assigned',
-        formTemplates: ['exterior', 'interior', 'site']
-      },
-      {
-        id: 'assignment-002',
-        propertyId: 'property-456',
-        address: '456 Oak Ave, Somewhere, CA 90210',
-        dueDate: '2025-05-20',
-        status: 'in_progress',
-        formTemplates: ['exterior', 'interior', 'site', 'environmental']
+// HTML content to serve
+const htmlContent = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TerraFusionPro Field App</title>
+  <style>
+    :root {
+      --primary-color: #10b981;
+      --primary-dark: #059669;
+      --secondary-color: #4b5563;
+      --light-gray: #f3f4f6;
+      --medium-gray: #e5e7eb;
+      --dark-gray: #1f2937;
+      --white: #ffffff;
+      --border-radius: 0.5rem;
+      --box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--light-gray);
+      color: var(--dark-gray);
+      line-height: 1.6;
+    }
+    
+    .app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    .header {
+      background-color: var(--primary-color);
+      color: var(--white);
+      padding: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 600px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    
+    .logo {
+      font-size: 1.25rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+    }
+    
+    .logo-icon {
+      margin-right: 0.5rem;
+    }
+    
+    .user-button {
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      border-radius: 50%;
+      width: 2.5rem;
+      height: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--white);
+      font-size: 1.25rem;
+    }
+    
+    .main-content {
+      flex: 1;
+      padding: 1rem;
+      max-width: 600px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    
+    .section-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 1.5rem 0 1rem;
+    }
+    
+    .card {
+      background-color: var(--white);
+      border-radius: var(--border-radius);
+      box-shadow: var(--box-shadow);
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    
+    .assignments-list {
+      list-style: none;
+    }
+    
+    .assignment-item {
+      padding: 1rem;
+      border-bottom: 1px solid var(--medium-gray);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+    }
+    
+    .assignment-item:last-child {
+      border-bottom: none;
+    }
+    
+    .assignment-details {
+      flex: 1;
+    }
+    
+    .assignment-address {
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+    }
+    
+    .assignment-meta {
+      font-size: 0.875rem;
+      color: var(--secondary-color);
+      display: flex;
+      align-items: center;
+    }
+    
+    .assignment-icon {
+      margin-right: 0.5rem;
+    }
+    
+    .assignment-arrow {
+      color: var(--secondary-color);
+    }
+    
+    .status {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 1rem;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    
+    .status-pending {
+      background-color: #FEF3C7;
+      color: #92400E;
+    }
+    
+    .status-in-progress {
+      background-color: #DBEAFE;
+      color: #1E40AF;
+    }
+    
+    .status-completed {
+      background-color: #D1FAE5;
+      color: #065F46;
+    }
+    
+    .quick-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    
+    .action-button {
+      background-color: var(--white);
+      border: 1px solid var(--medium-gray);
+      border-radius: var(--border-radius);
+      padding: 1rem 0.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .action-button:hover {
+      background-color: var(--light-gray);
+    }
+    
+    .action-icon {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: var(--primary-color);
+    }
+    
+    .action-label {
+      font-size: 0.75rem;
+      text-align: center;
+    }
+    
+    .floating-button {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      width: 3.5rem;
+      height: 3.5rem;
+      border-radius: 50%;
+      background-color: var(--primary-color);
+      color: var(--white);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      cursor: pointer;
+      border: none;
+      z-index: 5;
+      transition: background-color 0.2s;
+    }
+    
+    .floating-button:hover {
+      background-color: var(--primary-dark);
+    }
+    
+    .bottom-nav {
+      background-color: var(--white);
+      border-top: 1px solid var(--medium-gray);
+      display: flex;
+      justify-content: space-around;
+      padding: 0.75rem 0;
+    }
+    
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: var(--secondary-color);
+      text-decoration: none;
+      font-size: 0.75rem;
+    }
+    
+    .nav-item.active {
+      color: var(--primary-color);
+    }
+    
+    .nav-icon {
+      font-size: 1.25rem;
+      margin-bottom: 0.25rem;
+    }
+    
+    .empty-state {
+      padding: 2rem 1rem;
+      text-align: center;
+      color: var(--secondary-color);
+    }
+    
+    .empty-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      color: var(--medium-gray);
+    }
+    
+    .empty-message {
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+    
+    .empty-button {
+      background-color: var(--primary-color);
+      color: var(--white);
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: var(--border-radius);
+      font-weight: 500;
+      cursor: pointer;
+    }
+    
+    @media (max-width: 480px) {
+      .quick-actions {
+        grid-template-columns: repeat(2, 1fr);
       }
-    ]
-  });
-});
-
-// Main app route - serves the field app SPA
-app.get('*', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-      <meta name="theme-color" content="#2563eb">
-      <meta name="apple-mobile-web-app-capable" content="yes">
-      <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-      <title>TerraFusionPro Field App</title>
-      <link rel="manifest" href="/manifest.json">
-      <link rel="stylesheet" href="/styles.css">
-      <style>
-        body {
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          margin: 0;
-          padding: 0;
-          background-color: #f3f4f6;
-          color: #1f2937;
-        }
-        
-        .app {
-          display: flex;
-          flex-direction: column;
-          min-height: 100vh;
-        }
-        
-        .header {
-          background-color: #2563eb;
-          color: white;
-          padding: 1rem;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          position: sticky;
-          top: 0;
-          z-index: 10;
-        }
-        
-        .header-content {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        
-        .logo {
-          font-size: 1.25rem;
-          font-weight: 600;
-        }
-        
-        .main-content {
-          flex: 1;
-          padding: 1rem;
-        }
-        
-        .section {
-          background-color: white;
-          border-radius: 0.5rem;
-          padding: 1rem;
-          margin-bottom: 1rem;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        .section-title {
-          font-size: 1.125rem;
-          font-weight: 600;
-          margin-top: 0;
-          margin-bottom: 1rem;
-        }
-        
-        .assignment-list {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-        }
-        
-        .assignment-item {
-          border-bottom: 1px solid #e5e7eb;
-          padding: 0.75rem 0;
-        }
-        
-        .assignment-item:last-child {
-          border-bottom: none;
-        }
-        
-        .address {
-          font-weight: 500;
-          margin-bottom: 0.25rem;
-        }
-        
-        .assignment-meta {
-          display: flex;
-          font-size: 0.875rem;
-          color: #6b7280;
-        }
-        
-        .assignment-meta div {
-          margin-right: 1rem;
-        }
-        
-        .status-badge {
-          display: inline-block;
-          padding: 0.25rem 0.5rem;
-          border-radius: 9999px;
-          font-size: 0.75rem;
-          font-weight: 500;
-          text-transform: uppercase;
-        }
-        
-        .status-assigned {
-          background-color: #dbeafe;
-          color: #1e40af;
-        }
-        
-        .status-in-progress {
-          background-color: #fffbeb;
-          color: #92400e;
-        }
-        
-        .status-completed {
-          background-color: #dcfce7;
-          color: #166534;
-        }
-        
-        .navigation {
-          display: flex;
-          background-color: white;
-          border-top: 1px solid #e5e7eb;
-          padding: 0.5rem;
-          position: sticky;
-          bottom: 0;
-        }
-        
-        .nav-item {
-          flex: 1;
-          text-align: center;
-          padding: 0.5rem;
-          color: #6b7280;
-          text-decoration: none;
-          font-size: 0.75rem;
-        }
-        
-        .nav-item.active {
-          color: #2563eb;
-          font-weight: 500;
-        }
-        
-        .button {
-          background-color: #2563eb;
-          color: white;
-          border: none;
-          padding: 0.75rem 1rem;
-          border-radius: 0.5rem;
-          font-weight: 500;
-          cursor: pointer;
-          text-align: center;
-          display: block;
-          width: 100%;
-          margin-top: 1rem;
-        }
-        
-        .button-secondary {
-          background-color: #e5e7eb;
-          color: #1f2937;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="app">
-        <header class="header">
-          <div class="header-content">
-            <div class="logo">TerraFusion<span style="font-weight: 300;">Field</span></div>
-            <div class="user">John D.</div>
-          </div>
-        </header>
-        
-        <main class="main-content">
-          <div class="section">
-            <h2 class="section-title">Your Assignments</h2>
-            <ul class="assignment-list">
-              <li class="assignment-item">
-                <div class="address">123 Main St, Anytown, CA 94321</div>
-                <div class="assignment-meta">
-                  <div>Due: May 15, 2025</div>
-                  <div><span class="status-badge status-assigned">Assigned</span></div>
-                </div>
-                <button class="button">Start Inspection</button>
-              </li>
-              <li class="assignment-item">
-                <div class="address">456 Oak Ave, Somewhere, CA 90210</div>
-                <div class="assignment-meta">
-                  <div>Due: May 20, 2025</div>
-                  <div><span class="status-badge status-in-progress">In Progress</span></div>
-                </div>
-                <button class="button">Continue Inspection</button>
-              </li>
-            </ul>
-          </div>
-          
-          <div class="section">
-            <h2 class="section-title">Recently Completed</h2>
-            <ul class="assignment-list">
-              <li class="assignment-item">
-                <div class="address">789 Pine Ln, Elsewhere, CA 91234</div>
-                <div class="assignment-meta">
-                  <div>Completed: Apr 20, 2025</div>
-                  <div><span class="status-badge status-completed">Completed</span></div>
-                </div>
-                <button class="button button-secondary">View Report</button>
-              </li>
-            </ul>
-          </div>
-        </main>
-        
-        <nav class="navigation">
-          <a href="#" class="nav-item active">Assignments</a>
-          <a href="#" class="nav-item">Forms</a>
-          <a href="#" class="nav-item">Offline</a>
-          <a href="#" class="nav-item">Account</a>
-        </nav>
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-content">
+        <div class="logo">
+          <span class="logo-icon">📱</span>
+          TerraFusion<span style="font-weight: 400;">Pro Field</span>
+        </div>
+        <button class="user-button">👤</button>
+      </div>
+    </header>
+    
+    <main class="main-content">
+      <h2 class="section-title">Today's Assignments</h2>
+      
+      <div class="card">
+        <ul class="assignments-list">
+          <li class="assignment-item">
+            <div class="assignment-details">
+              <div class="assignment-address">123 Main Street, Cityville</div>
+              <div class="assignment-meta">
+                <span class="assignment-icon">🏠</span>
+                <span>Residential Inspection</span>
+              </div>
+            </div>
+            <span class="status status-pending">Pending</span>
+            <span class="assignment-arrow">›</span>
+          </li>
+          <li class="assignment-item">
+            <div class="assignment-details">
+              <div class="assignment-address">456 Oak Avenue, Townsburg</div>
+              <div class="assignment-meta">
+                <span class="assignment-icon">🏢</span>
+                <span>Commercial Appraisal</span>
+              </div>
+            </div>
+            <span class="status status-in-progress">In Progress</span>
+            <span class="assignment-arrow">›</span>
+          </li>
+          <li class="assignment-item">
+            <div class="assignment-details">
+              <div class="assignment-address">789 Pine Lane, Villageton</div>
+              <div class="assignment-meta">
+                <span class="assignment-icon">🏘️</span>
+                <span>Multi-Family Inspection</span>
+              </div>
+            </div>
+            <span class="status status-completed">Completed</span>
+            <span class="assignment-arrow">›</span>
+          </li>
+        </ul>
       </div>
       
-      <script>
-        // In a real implementation, this would be separated into proper JS files
-        document.addEventListener('DOMContentLoaded', function() {
-          console.log('TerraFusionPro Field App initialized');
-          
-          // Basic service worker registration for offline capabilities
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/service-worker.js')
-              .then(registration => {
-                console.log('Service Worker registered with scope:', registration.scope);
-              })
-              .catch(error => {
-                console.error('Service Worker registration failed:', error);
-              });
-          }
-          
-          // Handle buttons
-          document.querySelectorAll('.button').forEach(button => {
-            button.addEventListener('click', function() {
-              alert('This functionality would be implemented in a real application');
-            });
-          });
+      <h2 class="section-title">Quick Actions</h2>
+      
+      <div class="quick-actions">
+        <button class="action-button">
+          <span class="action-icon">📷</span>
+          <span class="action-label">Take Photos</span>
+        </button>
+        <button class="action-button">
+          <span class="action-icon">📝</span>
+          <span class="action-label">Fill Form</span>
+        </button>
+        <button class="action-button">
+          <span class="action-icon">📊</span>
+          <span class="action-label">Measurements</span>
+        </button>
+        <button class="action-button">
+          <span class="action-icon">📍</span>
+          <span class="action-label">Map View</span>
+        </button>
+        <button class="action-button">
+          <span class="action-icon">📤</span>
+          <span class="action-label">Upload</span>
+        </button>
+        <button class="action-button">
+          <span class="action-icon">✓</span>
+          <span class="action-label">Checklist</span>
+        </button>
+      </div>
+      
+      <h2 class="section-title">Recent Activity</h2>
+      
+      <div class="empty-state">
+        <div class="empty-icon">📂</div>
+        <div class="empty-message">No recent activity</div>
+        <button class="empty-button">Sync Now</button>
+      </div>
+      
+      <button class="floating-button">+</button>
+    </main>
+    
+    <nav class="bottom-nav">
+      <a href="#" class="nav-item active">
+        <span class="nav-icon">🏠</span>
+        <span>Home</span>
+      </a>
+      <a href="#" class="nav-item">
+        <span class="nav-icon">📋</span>
+        <span>Assignments</span>
+      </a>
+      <a href="#" class="nav-item">
+        <span class="nav-icon">📁</span>
+        <span>Forms</span>
+      </a>
+      <a href="#" class="nav-item">
+        <span class="nav-icon">⚙️</span>
+        <span>Settings</span>
+      </a>
+    </nav>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('TerraFusionPro Field App initialized');
+      
+      // Handle assignment items click
+      const assignmentItems = document.querySelectorAll('.assignment-item');
+      assignmentItems.forEach(item => {
+        item.addEventListener('click', function() {
+          const address = this.querySelector('.assignment-address').textContent;
+          alert('Opening assignment: ' + address);
         });
-      </script>
-    </body>
-    </html>
-  `);
+      });
+      
+      // Handle quick action buttons
+      const actionButtons = document.querySelectorAll('.action-button');
+      actionButtons.forEach(button => {
+        button.addEventListener('click', function() {
+          const action = this.querySelector('.action-label').textContent;
+          alert('Starting action: ' + action);
+        });
+      });
+      
+      // Handle floating button
+      const floatingButton = document.querySelector('.floating-button');
+      floatingButton.addEventListener('click', function() {
+        alert('Creating new inspection');
+      });
+      
+      // Handle bottom navigation
+      const navItems = document.querySelectorAll('.nav-item');
+      navItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          navItems.forEach(nav => nav.classList.remove('active'));
+          this.classList.add('active');
+          
+          const section = this.querySelector('span:last-child').textContent;
+          console.log('Navigated to ' + section);
+        });
+      });
+      
+      // Handle empty state button
+      const emptyButton = document.querySelector('.empty-button');
+      emptyButton.addEventListener('click', function() {
+        alert('Syncing data with server...');
+      });
+    });
+  </script>
+</body>
+</html>
+`;
+
+// Basic JSON response for API endpoints
+const apiInfoResponse = JSON.stringify({
+  name: 'TerraFusionPro Field App',
+  version: '1.0.0',
+  status: 'healthy',
+  timestamp: new Date().toISOString()
 });
 
-// Create public directory for static files
-const publicDir = path.join(__dirname, 'public');
-if (!require('fs').existsSync(publicDir)) {
-  require('fs').mkdirSync(publicDir, { recursive: true });
-}
-
-// Create a basic manifest.json for PWA support
-const manifestPath = path.join(publicDir, 'manifest.json');
-if (!require('fs').existsSync(manifestPath)) {
-  const manifest = {
-    name: 'TerraFusionPro Field App',
-    short_name: 'TerraField',
-    description: 'Mobile app for property inspection and data collection',
-    start_url: '/',
-    display: 'standalone',
-    background_color: '#ffffff',
-    theme_color: '#2563eb',
-    icons: [
-      {
-        src: '/icon-192.png',
-        sizes: '192x192',
-        type: 'image/png'
-      },
-      {
-        src: '/icon-512.png',
-        sizes: '512x512',
-        type: 'image/png'
-      }
-    ]
-  };
+// Create HTTP server
+const server = http.createServer((req, res) => {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
-  require('fs').writeFileSync(
-    manifestPath,
-    JSON.stringify(manifest, null, 2),
-    'utf8'
-  );
-}
-
-// Create a basic service worker for offline support
-const serviceWorkerPath = path.join(publicDir, 'service-worker.js');
-if (!require('fs').existsSync(serviceWorkerPath)) {
-  const serviceWorker = `
-    // TerraFusionPro Field App Service Worker
-    const CACHE_NAME = 'terrafusion-field-cache-v1';
-    const urlsToCache = [
-      '/',
-      '/styles.css',
-      '/manifest.json'
-    ];
-
-    // Install event - cache the app shell
-    self.addEventListener('install', event => {
-      event.waitUntil(
-        caches.open(CACHE_NAME)
-          .then(cache => {
-            console.log('Opened cache');
-            return cache.addAll(urlsToCache);
-          })
-      );
-    });
-
-    // Fetch event - serve from cache if available
-    self.addEventListener('fetch', event => {
-      event.respondWith(
-        caches.match(event.request)
-          .then(response => {
-            // Cache hit - return response
-            if (response) {
-              return response;
-            }
-            return fetch(event.request);
-          }
-        )
-      );
-    });
-
-    // Activate event - clean up old caches
-    self.addEventListener('activate', event => {
-      const cacheWhitelist = [CACHE_NAME];
-      event.waitUntil(
-        caches.keys().then(cacheNames => {
-          return Promise.all(
-            cacheNames.map(cacheName => {
-              if (cacheWhitelist.indexOf(cacheName) === -1) {
-                return caches.delete(cacheName);
-              }
-            })
-          );
-        })
-      );
-    });
-  `;
+  // Handle API request
+  if (req.url === '/api/info') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(apiInfoResponse);
+    return;
+  }
   
-  require('fs').writeFileSync(
-    serviceWorkerPath,
-    serviceWorker,
-    'utf8'
-  );
-}
+  // Serve HTML for all other routes
+  res.writeHead(200, { 'Content-Type': 'text/html' });
+  res.end(htmlContent);
+});
 
 // Start the server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Field app running on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Field app server running on port ${PORT}`);
 });
 
-export default app;
+export default server;

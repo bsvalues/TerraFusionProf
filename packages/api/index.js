@@ -8,252 +8,245 @@
 
 import express from 'express';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { fileURLToPath } from 'url';
+import path from 'path';
+import { db } from '../shared/storage.js';
+import { users } from '../shared/schema/index.js';
+import { eq } from 'drizzle-orm';
+
+// Get the current directory path
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.API_PORT || 5002;
 
-// Service endpoints (in a real deployment these would be from env vars or service discovery)
+// Service endpoints
 const SERVICES = {
-  PROPERTY: process.env.PROPERTY_SERVICE_URL || 'http://localhost:5001',
-  USER: process.env.USER_SERVICE_URL || 'http://localhost:5002',
-  FIELD: process.env.FIELD_APP_URL || 'http://localhost:5003',
-  ANALYSIS: process.env.ANALYSIS_SERVICE_URL || 'http://localhost:5004',
-  FORM: process.env.FORM_SERVICE_URL || 'http://localhost:5005',
-  REPORT: process.env.REPORT_SERVICE_URL || 'http://localhost:5006'
+  property: process.env.PROPERTY_SERVICE_URL || 'http://localhost:5003',
+  user: process.env.USER_SERVICE_URL || 'http://localhost:5004',
+  form: process.env.FORM_SERVICE_URL || 'http://localhost:5005',
+  analysis: process.env.ANALYSIS_SERVICE_URL || 'http://localhost:5006',
+  report: process.env.REPORT_SERVICE_URL || 'http://localhost:5007'
 };
-
-// JWT Secret for authentication
-const JWT_SECRET = process.env.JWT_SECRET || 'development-jwt-secret';
 
 // Middleware
-app.use(cors());
 app.use(helmet());
+app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-app.use(limiter);
+// JWT Secret
+const JWT_SECRET = process.env.JWT_SECRET || 'terrafusionpro-secret-key-for-development-only';
+const TOKEN_EXPIRY = '24h';
 
 // Authentication middleware
-const authenticate = (req, res, next) => {
-  // Skip auth for certain endpoints
-  if (
-    req.path === '/api/health' ||
-    req.path === '/api/user/auth/login' ||
-    req.path === '/api/user/auth/register' ||
-    req.path.startsWith('/api/public/')
-  ) {
-    return next();
-  }
-
-  const authHeader = req.headers.authorization;
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
   
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized - No token provided' });
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
   }
   
-  const token = authHeader.split(' ')[1];
-  
-  try {
-    // Verify token
-    const decoded = jwt.verify(token, JWT_SECRET);
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
     
-    // Attach user to request
-    req.user = decoded;
+    req.user = user;
     next();
-  } catch (error) {
-    return res.status(401).json({ error: 'Unauthorized - Invalid token' });
-  }
+  });
 };
 
-// Apply authentication to all API routes
-app.use('/api', authenticate);
+// Rate limiting middleware (simple implementation)
+const rateLimit = (req, res, next) => {
+  // In a production environment, you would use a proper rate limiting library
+  // and store rate limit data in Redis or another shared cache
+  next();
+};
+
+// Request logging middleware
+const logRequest = (req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+};
+
+// Apply global middleware
+app.use(logRequest);
+app.use(rateLimit);
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/health', (req, res) => {
   res.json({
-    service: 'api-gateway',
     status: 'healthy',
+    version: '1.0.0',
     timestamp: new Date().toISOString()
   });
 });
 
-// Route health checks for all services
-app.get('/api/health/services', async (req, res) => {
-  const serviceHealth = {};
-  const servicePromises = [];
-
-  // Check each service health
-  for (const [serviceName, serviceUrl] of Object.entries(SERVICES)) {
-    const checkPromise = fetch(`${serviceUrl}/health`)
-      .then(response => response.json())
-      .then(data => {
-        serviceHealth[serviceName.toLowerCase()] = {
-          status: 'healthy',
-          details: data
-        };
-      })
-      .catch(error => {
-        serviceHealth[serviceName.toLowerCase()] = {
-          status: 'unhealthy',
-          error: error.message
-        };
-      });
-      
-    servicePromises.push(checkPromise);
-  }
-
+// Authentication endpoints
+app.post('/auth/login', async (req, res) => {
   try {
-    await Promise.all(servicePromises);
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    
+    const userResults = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    const user = userResults[0];
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const passwordValid = await bcrypt.compare(password, user.password);
+    
+    if (!passwordValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Create token
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email, 
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role 
+      }, 
+      JWT_SECRET, 
+      { expiresIn: TOKEN_EXPIRY }
+    );
+    
+    // Update last login
+    await db.update(users)
+      .set({ lastLogin: new Date() })
+      .where(eq(users.id, user.id));
     
     res.json({
-      gateway: {
-        status: 'healthy',
-        timestamp: new Date().toISOString()
-      },
-      services: serviceHealth
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role
+      }
     });
   } catch (error) {
-    res.status(500).json({
-      gateway: {
-        status: 'unhealthy',
-        error: error.message
-      },
-      services: serviceHealth
-    });
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'An error occurred during login' });
   }
 });
 
-// User service proxy
-app.use('/api/user', createProxyMiddleware({
-  target: SERVICES.USER,
-  pathRewrite: {
-    '^/api/user/auth': '/auth',
-    '^/api/user': '/users'
-  },
-  changeOrigin: true
-}));
-
-// Property service proxy
-app.use('/api/properties', createProxyMiddleware({
-  target: SERVICES.PROPERTY,
-  pathRewrite: {
-    '^/api/properties': '/properties'
-  },
-  changeOrigin: true
-}));
-
-// Analysis service proxy
-app.use('/api/analysis', createProxyMiddleware({
-  target: SERVICES.ANALYSIS,
-  pathRewrite: {
-    '^/api/analysis': '/analysis'
-  },
-  changeOrigin: true
-}));
-
-// Form service proxy
-app.use('/api/forms', createProxyMiddleware({
-  target: SERVICES.FORM,
-  pathRewrite: {
-    '^/api/forms': '/forms'
-  },
-  changeOrigin: true
-}));
-
-app.use('/api/submissions', createProxyMiddleware({
-  target: SERVICES.FORM,
-  pathRewrite: {
-    '^/api/submissions': '/submissions'
-  },
-  changeOrigin: true
-}));
-
-// Report service proxy
-app.use('/api/reports', createProxyMiddleware({
-  target: SERVICES.REPORT,
-  pathRewrite: {
-    '^/api/reports': '/reports'
-  },
-  changeOrigin: true
-}));
-
-// Field app proxy - this routes to the field app for mobile users
-app.use('/field', createProxyMiddleware({
-  target: SERVICES.FIELD,
-  pathRewrite: {
-    '^/field': '/'
-  },
-  changeOrigin: true
-}));
-
-// Additional middleware for gateway operations
-
-// Role-based access control middleware
-const checkRole = (roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized - No user' });
+app.post('/auth/register', async (req, res) => {
+  try {
+    const { email, password, firstName, lastName, role = 'appraiser' } = req.body;
+    
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({ error: 'All fields are required' });
     }
     
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Forbidden - Insufficient privileges' });
+    // Check if user already exists
+    const existingUser = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+    
+    if (existingUser.length > 0) {
+      return res.status(409).json({ error: 'User with this email already exists' });
     }
     
-    next();
-  };
-};
-
-// Admin-only endpoint example
-app.get('/api/admin/users', checkRole(['admin']), (req, res) => {
-  // In a real implementation, this would proxy to the user service
-  // with admin-specific operations
-  res.json({ message: 'This is an admin-only endpoint' });
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Create user
+    const newUser = await db.insert(users)
+      .values({
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        role
+      })
+      .returning({
+        id: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        role: users.role
+      });
+    
+    res.status(201).json(newUser[0]);
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'An error occurred during registration' });
+  }
 });
 
-// Request logging middleware
-app.use((req, res, next) => {
-  const start = Date.now();
-  
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    
-    console.log(
-      `${req.method} ${req.path} ${res.statusCode} ${duration}ms ${req.user?.id || 'anon'}`
-    );
+// Current user endpoint
+app.get('/auth/me', authenticateToken, (req, res) => {
+  res.json({
+    id: req.user.id,
+    email: req.user.email,
+    firstName: req.user.firstName,
+    lastName: req.user.lastName,
+    role: req.user.role
   });
-  
-  next();
+});
+
+// Proxy middleware options
+const proxyOptions = {
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/property': '',
+    '^/api/user': '',
+    '^/api/form': '',
+    '^/api/analysis': '',
+    '^/api/report': ''
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    // Add user info from JWT to headers for downstream services
+    if (req.user) {
+      proxyReq.setHeader('X-User-ID', req.user.id);
+      proxyReq.setHeader('X-User-Role', req.user.role);
+    }
+  },
+  logLevel: 'silent'
+};
+
+// Configure service proxies
+app.use('/api/property', authenticateToken, createProxyMiddleware({ ...proxyOptions, target: SERVICES.property }));
+app.use('/api/user', authenticateToken, createProxyMiddleware({ ...proxyOptions, target: SERVICES.user }));
+app.use('/api/form', authenticateToken, createProxyMiddleware({ ...proxyOptions, target: SERVICES.form }));
+app.use('/api/analysis', authenticateToken, createProxyMiddleware({ ...proxyOptions, target: SERVICES.analysis }));
+app.use('/api/report', authenticateToken, createProxyMiddleware({ ...proxyOptions, target: SERVICES.report }));
+
+// API documentation
+app.get('/api-docs', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'api-docs.html'));
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('API Gateway Error:', err);
-  
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: err.message
-  });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // Start the server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`API Gateway running on port ${PORT}`);
-  console.log('Service URLs:');
-  Object.entries(SERVICES).forEach(([name, url]) => {
-    console.log(`- ${name}: ${url}`);
-  });
 });
 
 export default app;

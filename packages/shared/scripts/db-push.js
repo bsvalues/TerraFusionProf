@@ -6,47 +6,57 @@
  * be used with caution in production.
  */
 
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { db, schema } from '../storage.js';
-import { sql } from 'drizzle-orm';
+import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
+import { schema } from '../schema/index.js';
 
-// Get the current directory
+// Get the current directory path
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Migrations folder path
-const MIGRATIONS_FOLDER = path.join(__dirname, '../migrations');
+// Database connection configuration
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
-// Create migrations folder if it doesn't exist
-if (!fs.existsSync(MIGRATIONS_FOLDER)) {
-  fs.mkdirSync(MIGRATIONS_FOLDER, { recursive: true });
-}
+// Create Drizzle ORM instance
+const db = drizzle(pool, { schema });
 
 /**
  * Push schema changes to the database
  */
 async function push() {
   try {
-    console.log(`Pushing schema changes to database...`);
-    
-    // Create schema if it doesn't exist
-    await db.execute(sql`
-      CREATE SCHEMA IF NOT EXISTS public;
-    `);
+    console.log('Starting schema push to database...');
+    console.log(`Using connection string: ${process.env.DATABASE_URL.split('@')[1]}`);
+
+    // Test connection
+    const client = await pool.connect();
+    console.log('Database connection established');
+    client.release();
+
+    // Migrations folder path (relative to this script)
+    const migrationsFolder = path.join(__dirname, '../migrations');
     
     // Run migrations
-    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+    console.log(`Running migrations from ${migrationsFolder}`);
+    await migrate(db, { migrationsFolder });
     
-    console.log('Schema changes successfully applied to database');
-    process.exit(0);
+    console.log('Schema push completed successfully');
   } catch (error) {
-    console.error('Error pushing schema changes:', error);
+    console.error('Error during schema push:', error);
     process.exit(1);
+  } finally {
+    // Close the connection pool
+    await pool.end();
+    console.log('Database connection closed');
   }
 }
 
-// Run the migration
+// Execute push function
 push();
