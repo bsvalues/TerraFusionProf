@@ -12,6 +12,8 @@ import Footer from './components/Footer';
 import Dashboard from './components/Dashboard';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
+import PropertyDetail from './components/PropertyDetail';
+import ReportDetail from './components/ReportDetail';
 
 // Properties Component (will be moved to its own file later)
 import { useState, useEffect } from 'react';
@@ -325,9 +327,19 @@ const App = () => {
               <Properties />
             </PrivateRoute>
           } />
+          <Route path="/properties/:id" element={
+            <PrivateRoute>
+              <PropertyDetail />
+            </PrivateRoute>
+          } />
           <Route path="/reports" element={
             <PrivateRoute>
               <Reports />
+            </PrivateRoute>
+          } />
+          <Route path="/reports/:id" element={
+            <PrivateRoute>
+              <ReportDetail />
             </PrivateRoute>
           } />
           <Route path="/analysis" element={

@@ -27,10 +27,28 @@ const CONTENT_TYPES = {
   '.svg': 'image/svg+xml'
 };
 
+// Root directory for the entire project
+const rootDir = path.resolve(__dirname, '..', '..');
+
 // Ensure the public directory exists
 const publicDir = path.join(__dirname, 'public');
 if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
+}
+
+// Copy global.css to public folder
+const globalCssSourcePath = path.join(rootDir, 'assets/styles/global.css');
+const globalCssDestPath = path.join(publicDir, 'global.css');
+
+try {
+  if (fs.existsSync(globalCssSourcePath)) {
+    fs.copyFileSync(globalCssSourcePath, globalCssDestPath);
+    console.log('Global CSS file copied to public directory');
+  } else {
+    console.warn('Global CSS file not found at', globalCssSourcePath);
+  }
+} catch (error) {
+  console.error('Error copying global CSS file:', error);
 }
 
 // Create the index.html file
