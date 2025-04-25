@@ -288,7 +288,8 @@ const htmlContent = `<!DOCTYPE html>
     
     // API functions
     const API = {
-      baseUrl: 'http://localhost:5002/api',
+      // Use relative URL to avoid CORS issues with the proxy
+      baseUrl: '/api',
       
       async login(email, password) {
         try {
