@@ -2,11 +2,10 @@
  * TerraFusionPro Database Initialization Script
  * 
  * This script initializes the database schema for the TerraFusionPro platform.
- * It uses pg directly to create tables and enums according to the shared schema.
+ * It uses pg directly to create tables and enums according to the defined schema.
  */
 
 import pg from 'pg';
-import { schema } from '../schema/index.js';
 
 // Get database connection string from environment variables
 const connectionString = process.env.DATABASE_URL;
@@ -275,11 +274,11 @@ const initialDataSql = `
   -- Insert sample property if none exist
   INSERT INTO properties (
     address, city, state, zip_code, property_type, year_built, bedrooms, bathrooms,
-    building_size, lot_size, lot_unit, created_at, updated_at
+    building_size, lot_size, created_at, updated_at
   )
   SELECT 
-    '123 Main St', 'Springfield', 'CA', '90001', 'residential', 2005, 4, 2.5,
-    2500, 7500, 'sqft', NOW(), NOW()
+    '123 Main St', 'Springfield', 'CA', '90001', 'residential', 2005, 4, 2,
+    '2500', '7500', NOW(), NOW()
   WHERE NOT EXISTS (SELECT 1 FROM properties LIMIT 1);
 `;
 
