@@ -2,97 +2,33 @@
  * TerraFusionPro Web Client - Main App Component
  */
 
-import React, { useState, useEffect } from 'react';
-import { Routes, Route, Link } from 'react-router-dom';
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
+
+// Import components
 import Header from './components/Header';
 import Footer from './components/Footer';
-import { useAuth } from './contexts/AuthContext';
+import Dashboard from './components/Dashboard';
+import LoginForm from './components/LoginForm';
+import RegisterForm from './components/RegisterForm';
+
+// Properties Component (will be moved to its own file later)
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 // API Base URL
 const API_BASE_URL = '/api';
 
-// Dashboard Component
-const Dashboard = () => {
-  const [properties, setProperties] = useState([]);
-  const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const { isAuthenticated } = useAuth();
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      const fetchDashboardData = async () => {
-        try {
-          // Fetch properties
-          const propertiesResponse = await fetch(`${API_BASE_URL}/properties`);
-          const propertiesData = await propertiesResponse.json();
-          
-          // Fetch reports
-          const reportsResponse = await fetch(`${API_BASE_URL}/reports`);
-          const reportsData = await reportsResponse.json();
-          
-          setProperties(propertiesData.properties || []);
-          setReports(reportsData.reports || []);
-        } catch (error) {
-          console.error('Error fetching dashboard data:', error);
-          setError('Failed to load dashboard data');
-        } finally {
-          setLoading(false);
-        }
-      };
-      
-      fetchDashboardData();
-    }
-  }, [isAuthenticated]);
-
-  if (!isAuthenticated) {
-    return (
-      <div className="auth-container">
-        <h1>Welcome to TerraFusionPro</h1>
-        <p>Please log in to access the dashboard.</p>
-        <Link to="/login" className="btn btn-primary">Login</Link>
-      </div>
-    );
-  }
-
+// Private Route Component
+const PrivateRoute = ({ children }) => {
+  const { isAuthenticated, loading } = useAuth();
+  
   if (loading) {
-    return <div>Loading dashboard data...</div>;
+    return <div>Loading...</div>;
   }
-
-  if (error) {
-    return <div>Error: {error}</div>;
-  }
-
-  return (
-    <div className="dashboard-container">
-      <h1>Dashboard</h1>
-      <div className="dashboard">
-        <div className="card">
-          <h2>Recent Properties</h2>
-          <p>You have {properties.length} properties in your portfolio.</p>
-          <Link to="/properties" className="btn btn-primary">View All</Link>
-        </div>
-        
-        <div className="card">
-          <h2>Appraisal Reports</h2>
-          <p>{reports.filter(r => r.status === 'pending_review' || r.status === 'in_review').length} reports need your attention.</p>
-          <Link to="/reports" className="btn btn-primary">View Reports</Link>
-        </div>
-        
-        <div className="card">
-          <h2>Market Insights</h2>
-          <p>Access market analysis and property valuations.</p>
-          <Link to="/analysis" className="btn btn-primary">View Analysis</Link>
-        </div>
-        
-        <div className="card">
-          <h2>Field Collection</h2>
-          <p>Manage property inspections and data collection.</p>
-          <Link to="/fieldwork" className="btn btn-primary">Field App</Link>
-        </div>
-      </div>
-    </div>
-  );
+  
+  return isAuthenticated ? children : <Navigate to="/login" />;
 };
 
 // Properties Component
@@ -146,9 +82,12 @@ const Properties = () => {
 
   return (
     <div className="container">
-      <h1>Properties</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+        <h1>Properties</h1>
+        <Link to="/properties/new" className="btn btn-primary">Add New Property</Link>
+      </div>
       
-      <div className="property-list">
+      <div className="property-grid">
         {properties.length === 0 ? (
           <p>No properties found.</p>
         ) : (
@@ -246,7 +185,10 @@ const Reports = () => {
 
   return (
     <div className="container">
-      <h1>Appraisal Reports</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+        <h1>Appraisal Reports</h1>
+        <Link to="/reports/new" className="btn btn-primary">Create New Report</Link>
+      </div>
       
       <div className="reports-container">
         {reports.length === 0 ? (
@@ -259,7 +201,12 @@ const Reports = () => {
                   <h2>{status.replace('_', ' ').charAt(0).toUpperCase() + status.replace('_', ' ').slice(1)}</h2>
                   <div className="reports-grid">
                     {statusReports.map(report => (
-                      <div key={report.id} className={`card ${getStatusClass(report.status)}`}>
+                      <div key={report.id} className="card">
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
+                          <span className={`status-badge ${getStatusClass(report.status)}`}>
+                            {report.status.replace('_', ' ')}
+                          </span>
+                        </div>
                         <h3>{report.title || `Report #${report.report_number}`}</h3>
                         <p><strong>Report Number:</strong> {report.report_number}</p>
                         <p><strong>Client:</strong> {report.client_name}</p>
@@ -285,7 +232,7 @@ const Analysis = () => {
       <h1>Market Analysis</h1>
       <p>This section provides access to market analytics, property valuation tools, and comparable analysis.</p>
       
-      <div className="analysis-grid">
+      <div className="dashboard-grid">
         <div className="card">
           <h2>Market Data</h2>
           <p>View market trends, property value indices, and sales data.</p>
@@ -326,7 +273,7 @@ const Account = () => {
     <div className="container">
       <h1>Your Account</h1>
       
-      <div className="account-profile">
+      <div className="dashboard-grid">
         <div className="card">
           <h2>Profile Information</h2>
           <p><strong>Name:</strong> {currentUser.first_name} {currentUser.last_name}</p>
@@ -341,84 +288,12 @@ const Account = () => {
           <p>Update your password and security settings.</p>
           <button className="btn btn-primary">Change Password</button>
         </div>
-      </div>
-    </div>
-  );
-};
-
-// Login Component
-const Login = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const { login, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
-
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/');
-    }
-  }, [isAuthenticated, navigate]);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    
-    try {
-      await login(email, password);
-      navigate('/');
-    } catch (error) {
-      setError(error.message || 'Failed to login');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="auth-container">
-      <h1>Login</h1>
-      
-      {error && (
-        <div className="error-message">
-          {error}
-        </div>
-      )}
-      
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label htmlFor="email">Email</label>
-          <input
-            type="email"
-            id="email"
-            className="form-control"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </div>
         
-        <div className="form-group">
-          <label htmlFor="password">Password</label>
-          <input
-            type="password"
-            id="password"
-            className="form-control"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+        <div className="card">
+          <h2>Preferences</h2>
+          <p>Manage your notification and display preferences.</p>
+          <button className="btn btn-primary">Edit Preferences</button>
         </div>
-        
-        <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? 'Logging in...' : 'Login'}
-        </button>
-      </form>
-      
-      <div className="auth-footer">
-        <p>Don't have an account? <Link to="/register">Register</Link></p>
       </div>
     </div>
   );
@@ -426,28 +301,47 @@ const Login = () => {
 
 // Not Found Component
 const NotFound = () => (
-  <div className="container">
+  <div className="container" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
     <h1>404 - Page Not Found</h1>
     <p>The page you are looking for doesn't exist or has been moved.</p>
     <Link to="/" className="btn btn-primary">Go to Dashboard</Link>
   </div>
 );
 
-// Import necessary router components
-import { useNavigate } from 'react-router-dom';
-
+// Main App Component
 const App = () => {
   return (
     <div className="app-container">
       <Header />
       <main className="main-content">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/properties" element={<Properties />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/analysis" element={<Analysis />} />
-          <Route path="/account" element={<Account />} />
-          <Route path="/login" element={<Login />} />
+          <Route path="/" element={
+            <PrivateRoute>
+              <Dashboard />
+            </PrivateRoute>
+          } />
+          <Route path="/properties" element={
+            <PrivateRoute>
+              <Properties />
+            </PrivateRoute>
+          } />
+          <Route path="/reports" element={
+            <PrivateRoute>
+              <Reports />
+            </PrivateRoute>
+          } />
+          <Route path="/analysis" element={
+            <PrivateRoute>
+              <Analysis />
+            </PrivateRoute>
+          } />
+          <Route path="/account" element={
+            <PrivateRoute>
+              <Account />
+            </PrivateRoute>
+          } />
+          <Route path="/login" element={<LoginForm />} />
+          <Route path="/register" element={<RegisterForm />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
