@@ -1,81 +1,175 @@
 # Contributing to TerraFusionPro
 
-Thank you for your interest in contributing to TerraFusionPro! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to TerraFusionPro! This document provides guidelines and instructions for contributing to this project.
+
+## Table of Contents
+
+- [Code of Conduct](#code-of-conduct)
+- [Getting Started](#getting-started)
+- [Development Workflow](#development-workflow)
+- [Branching Strategy](#branching-strategy)
+- [Commit Message Guidelines](#commit-message-guidelines)
+- [Pull Request Process](#pull-request-process)
+- [Testing Guidelines](#testing-guidelines)
+- [Code Style and Standards](#code-style-and-standards)
+- [Documentation](#documentation)
+- [Issue Reporting](#issue-reporting)
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by our Code of Conduct. By participating, you are expected to uphold this code.
+Our project adheres to a Code of Conduct that we expect all contributors to follow. Please read and understand this code before contributing.
 
-## Development Process
+- Be respectful and inclusive
+- Be collaborative
+- Take responsibility for your actions
+- Be careful in the words you choose
+- Focus on what is best for the community and project
 
-We use GitHub to host code, track issues and feature requests, and accept pull requests.
+## Getting Started
 
-### Pull Requests
+### Prerequisites
 
-1. Fork the repository and create your branch from `develop`
-2. If you've added code that should be tested, add tests
-3. If you've changed APIs, update the documentation
-4. Ensure the test suite passes
-5. Make sure your code lints
-6. Issue that pull request!
+- Node.js 20.x or higher
+- PostgreSQL 14.x or higher
+- Git
 
-### Coding Style
+### Local Development Setup
 
-- We use Prettier for code formatting
-- We follow ESLint rules defined in the repository
-- TypeScript is our primary language
+1. Fork the repository
+2. Clone your fork:
+   ```
+   git clone https://github.com/your-username/terrafusionpro.git
+   ```
+3. Add the original repository as the upstream remote:
+   ```
+   git remote add upstream https://github.com/origorg/terrafusionpro.git
+   ```
+4. Install dependencies:
+   ```
+   npm install
+   ```
+5. Set up the local database:
+   ```
+   npm run db:push
+   ```
+6. Start the development environment:
+   ```
+   npm start
+   ```
 
-## Development Setup
+## Development Workflow
 
-Please refer to the [README.md](./README.md) for development environment setup instructions.
+TerraFusionPro follows a microservices architecture in a monorepo structure. Each service and package has its own responsibilities and concerns.
 
-## Project Structure
+### Monorepo Structure
 
-The TerraFusionPro repository is organized as a monorepo using Lerna. Here's an overview of the main directories:
+- `packages/`: Shared libraries and modules used across multiple services
+- `services/`: Microservices that comprise the TerraFusionPro platform
+- `infrastructure/`: Kubernetes and deployment configurations
 
-- `packages/`: Contains client-facing applications and shared utilities
-  - `api/`: API Gateway implementation
-  - `field-app/`: Mobile field collection app (React Native)
-  - `web-client/`: Web client application (React)
-  - `shared/`: Shared code and utilities
-  - `agents/`: AI agent implementations
+### Running Specific Services
 
-- `services/`: Backend microservices
-  - `property-service/`: Property data management
-  - `analysis-service/`: Valuation and analysis
-  - `user-service/`: User management and auth
-  - `form-service/`: Form definition and processing
-  - `report-service/`: Report generation
+You can run individual services for development:
 
-- `infrastructure/`: DevOps and infrastructure configurations
-  - `kubernetes/`: K8s deployment configurations
-  - `terraform/`: IaC for cloud resources
-  - `docker/`: Docker configurations
-  - `ci-cd/`: CI/CD pipeline configurations
+```bash
+# Start the web client
+npm start
 
-- `docs/`: Project documentation
-  - `architecture/`: Architecture diagrams and docs
-  - `api/`: API documentation
-  - `development/`: Development guidelines
-  - `user-guides/`: End-user documentation
+# Start the API gateway
+npm run start:api
 
-- `scripts/`: Utility scripts for development and deployment
-- `tests/`: Integration and end-to-end tests
-- `assets/`: Static assets for the project
+# Start specific services
+npm run start:property
+npm run start:user
+npm run start:form
+npm run start:analysis
+npm run start:report
+```
+
+## Branching Strategy
+
+We follow a feature branch workflow:
+
+1. Create a branch from `main` for your feature or bugfix:
+   ```
+   git checkout -b feature/your-feature-name
+   ```
+   or
+   ```
+   git checkout -b fix/your-bugfix-name
+   ```
+
+2. Make your changes in that branch
+3. Submit a pull request to the `main` branch
 
 ## Commit Message Guidelines
 
-We follow the Conventional Commits specification for our commit messages:
+We follow the Conventional Commits specification:
 
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+Types include:
 - `feat`: A new feature
 - `fix`: A bug fix
-- `docs`: Documentation only changes
-- `style`: Changes that do not affect the meaning of the code
-- `refactor`: A code change that neither fixes a bug nor adds a feature
-- `perf`: A code change that improves performance
-- `test`: Adding missing tests or correcting existing tests
-- `chore`: Changes to the build process or auxiliary tools
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, missing semicolons, etc)
+- `refactor`: Code refactoring without changing functionality
+- `perf`: Performance improvements
+- `test`: Adding or updating tests
+- `chore`: Build process or auxiliary tool changes
 
-## License
+Example:
+```
+feat(property): add geocoding capability to property service
 
-By contributing to TerraFusionPro, you agree that your contributions will be licensed under the project's proprietary license.
+Add integration with mapping API to automatically geocode properties when they are created.
+
+Closes #123
+```
+
+## Pull Request Process
+
+1. Ensure your PR addresses a specific issue or implements a specific feature
+2. Update documentation as needed
+3. Add tests for new functionality
+4. Make sure all tests pass
+5. Get at least one code review from a maintainer
+6. Once approved, a maintainer will merge your PR
+
+## Testing Guidelines
+
+- Write unit tests for all new code
+- Ensure all tests pass before submitting a PR
+- Write integration tests for new features that span multiple services
+- Aim for at least 80% test coverage
+
+## Code Style and Standards
+
+- Follow the ESLint rules defined in the project
+- Use async/await for asynchronous code
+- Use descriptive variable and function names
+- Document complex logic with comments
+- Follow the principle of least surprise
+
+## Documentation
+
+- Update documentation when changing functionality
+- Include JSDoc comments for functions and classes
+- Update API documentation when changing endpoints
+- Keep README and other documents up to date
+
+## Issue Reporting
+
+- Use the issue template when creating new issues
+- Provide detailed reproduction steps
+- Include version information
+- Note the expected vs. actual behavior
+- Include screenshots, logs, or other relevant information
+
+Thank you for contributing to TerraFusionPro!
