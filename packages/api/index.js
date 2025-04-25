@@ -4,25 +4,23 @@
  * This is the main entry point for the API Gateway, which routes requests
  * to appropriate microservices and handles authentication, rate limiting,
  * and other cross-cutting concerns.
+ * 
+ * This implementation uses Node.js http module directly to avoid dependency issues.
  */
 
-import express from 'express';
-import { createProxyMiddleware } from 'http-proxy-middleware';
-import cors from 'cors';
-import helmet from 'helmet';
-import jwt from 'jsonwebtoken';
+import http from 'http';
+import https from 'https';
+import { URL } from 'url';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import jwt from 'jsonwebtoken';
 
 // Get the current directory path
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Express app
-const app = express();
+// Port and configuration
 const PORT = process.env.API_GATEWAY_PORT || 5002;
-
-// JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'terrafusionpro-secret-key';
 
 // Public routes that don't require authentication
@@ -44,110 +42,168 @@ const serviceRoutes = {
   '/api/reports': 'http://localhost:5004'
 };
 
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Request logging middleware
-const logRequest = (req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
-  });
-  next();
-};
-
-// Authentication middleware
-const authenticateRequest = (req, res, next) => {
-  // Skip authentication for public routes
-  if (publicRoutes.some(route => req.path.startsWith(route))) {
-    return next();
+// Create HTTP server
+const server = http.createServer(async (req, res) => {
+  const startTime = Date.now();
+  
+  // Log the request
+  console.log(`${req.method} ${req.url}`);
+  
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
   }
   
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication token required' });
+  // Handle root health check
+  if (req.url === '/' || req.url === '/api') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'API Gateway is running',
+      timestamp: new Date().toISOString()
+    }));
+    return;
   }
   
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    
-    // Add user info to request for downstream services
-    req.headers['x-user-id'] = user.id;
-    req.headers['x-user-role'] = user.role;
-    req.headers['x-user-email'] = user.email;
-    
-    next();
-  });
-};
-
-// Rate limiting middleware (simple implementation)
-const rateLimit = (req, res, next) => {
-  // In a real implementation, this would use Redis or another shared store
-  // to keep track of request counts across instances
+  // Handle API health check
+  if (req.url === '/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'healthy',
+      service: 'api-gateway',
+      version: '1.0.0',
+      timestamp: new Date().toISOString()
+    }));
+    return;
+  }
   
-  // For this simplified version, we'll just pass through all requests
-  next();
-};
-
-// Apply global middleware
-app.use(logRequest);
-app.use(authenticateRequest);
-app.use(rateLimit);
-
-// Gateway health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'api-gateway',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Set up proxies to each service
-Object.entries(serviceRoutes).forEach(([route, target]) => {
-  app.use(route, createProxyMiddleware({
-    target,
-    pathRewrite: {
-      [`^${route}`]: '', // Remove the /api/<service> prefix when proxying
-    },
-    changeOrigin: true,
-    onProxyReq: (proxyReq, req, res) => {
-      // Log the proxied request
-      console.log(`Proxying ${req.method} ${req.path} to ${target}`);
+  // Find the target service for this route
+  const routeKey = Object.keys(serviceRoutes).find(route => req.url.startsWith(route));
+  
+  if (!routeKey) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Service not found for this route' }));
+    return;
+  }
+  
+  // Check authentication for protected routes
+  if (!publicRoutes.some(route => req.url.startsWith(route))) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Authentication token required' }));
+      return;
     }
-  }));
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('API Gateway Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+    
+    try {
+      // Verify JWT token
+      const user = jwt.verify(token, JWT_SECRET);
+      
+      // Add user info to headers
+      req.headers['x-user-id'] = user.id;
+      req.headers['x-user-role'] = user.role;
+      req.headers['x-user-email'] = user.email;
+    } catch (err) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid or expired token' }));
+      return;
+    }
+  }
+  
+  // Forward the request to the target service
+  const targetUrl = serviceRoutes[routeKey];
+  const serviceUrl = new URL(req.url.replace(routeKey, ''), targetUrl);
+  
+  // Get request body if POST/PUT
+  let requestBody = '';
+  if (req.method === 'POST' || req.method === 'PUT') {
+    await new Promise((resolve) => {
+      req.on('data', chunk => {
+        requestBody += chunk.toString();
+      });
+      req.on('end', resolve);
+    });
+  }
+  
+  // Proxy configuration
+  const proxyOptions = {
+    hostname: serviceUrl.hostname,
+    port: serviceUrl.port,
+    path: serviceUrl.pathname + serviceUrl.search,
+    method: req.method,
+    headers: {
+      ...req.headers,
+      host: serviceUrl.host
+    }
+  };
+  
+  console.log(`Proxying ${req.method} ${req.url} to ${targetUrl}${serviceUrl.pathname}`);
+  
+  // Create proxy request
+  const proxyReq = http.request(proxyOptions, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    
+    proxyRes.on('data', (chunk) => {
+      res.write(chunk);
+    });
+    
+    proxyRes.on('end', () => {
+      const duration = Date.now() - startTime;
+      console.log(`${req.method} ${req.url} ${proxyRes.statusCode} ${duration}ms`);
+      res.end();
+    });
+  });
+  
+  // Handle errors
+  proxyReq.on('error', (error) => {
+    console.error('Proxy request error:', error);
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Service unavailable', details: error.message }));
+  });
+  
+  // Send request body if any
+  if (requestBody) {
+    proxyReq.write(requestBody);
+  }
+  
+  proxyReq.end();
 });
 
 // Start the server
-const server = app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`API Gateway running on port ${PORT}`);
   
   // Print out server address info to confirm binding
   const addressInfo = server.address();
   console.log(`Server successfully bound to ${addressInfo.address}:${addressInfo.port}`);
+  
+  // Create test request to keep the server active
+  const testEndpoints = () => {
+    // Make a request to the root endpoint to test the server
+    http.get(`http://localhost:${PORT}/api/health`, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        console.log('Health check response:', data);
+      });
+    }).on('error', (err) => {
+      console.error('Health check failed:', err.message);
+    });
+  };
+  
+  // Run test immediately and then every 10 seconds
+  testEndpoints();
+  setInterval(testEndpoints, 10000);
 });
 
-// Add basic health check on root endpoint to confirm the server is responsive
-app.get('/', (req, res) => {
-  res.json({
-    status: 'API Gateway is running',
-    timestamp: new Date().toISOString()
-  });
-});
-
-export default app;
+export default server;

@@ -14,6 +14,9 @@
     "real-estate",
     "appraisal"
   ],
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2"
+  },
   "author": "TerraFusionPro Team",
   "license": "UNLICENSED"
 }

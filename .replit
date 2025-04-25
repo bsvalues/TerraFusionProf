@@ -25,7 +25,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd packages/web-client && node index.js"
+args = "node packages/web-client/index.js"
 waitForPort = 5000
 
 [[workflows.workflow]]
@@ -38,8 +38,12 @@ args = "node packages/api/index.js"
 waitForPort = 5002
 
 [deployment]
-run = ["sh", "-c", "cd packages/web-client && node index.js"]
+run = ["sh", "-c", "node packages/web-client/index.js"]
 
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 5002
+externalPort = 3000
