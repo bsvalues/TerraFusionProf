@@ -36,19 +36,30 @@ if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
 }
 
-// Copy global.css to public folder
+// Copy CSS files to public folder
 const globalCssSourcePath = path.join(rootDir, 'assets/styles/global.css');
 const globalCssDestPath = path.join(publicDir, 'global.css');
+const customCssSourcePath = path.join(__dirname, 'styles/index.css');
+const customCssDestPath = path.join(publicDir, 'styles.css');
 
 try {
+  // Copy global CSS
   if (fs.existsSync(globalCssSourcePath)) {
     fs.copyFileSync(globalCssSourcePath, globalCssDestPath);
     console.log('Global CSS file copied to public directory');
   } else {
     console.warn('Global CSS file not found at', globalCssSourcePath);
   }
+  
+  // Copy custom component styles
+  if (fs.existsSync(customCssSourcePath)) {
+    fs.copyFileSync(customCssSourcePath, customCssDestPath);
+    console.log('Custom component styles copied to public directory');
+  } else {
+    console.warn('Custom component styles not found at', customCssSourcePath);
+  }
 } catch (error) {
-  console.error('Error copying global CSS file:', error);
+  console.error('Error copying CSS files:', error);
 }
 
 // Create the index.html file
@@ -59,6 +70,7 @@ const htmlContent = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TerraFusionPro</title>
   <link rel="stylesheet" href="/global.css">
+  <link rel="stylesheet" href="/styles.css">
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-router-dom@6.3.0/umd/react-router-dom.production.min.js"></script>
