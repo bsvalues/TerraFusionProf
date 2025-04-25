@@ -1,93 +1,137 @@
 version: '3.8'
 
 services:
-  mongodb:
-    image: mongo:5.0
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-terrafusion}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
-
+  # Database service
   postgres:
-    image: postgres:14
+    image: postgres:14-alpine
+    container_name: terrafusionpro-postgres
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_USER: ${PGUSER:-terrafusion}
-      POSTGRES_PASSWORD: ${PGPASSWORD:-password}
-      POSTGRES_DB: ${PGDATABASE:-terrafusion}
-
-  redis:
-    image: redis:6.2
-    ports:
-      - "6379:6379"
+      POSTGRES_USER: terrafusionpro
+      POSTGRES_PASSWORD: terrafusionpro
+      POSTGRES_DB: terrafusionpro
     volumes:
-      - redis_data:/data
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - terrafusionpro-network
 
+  # API Gateway
   api-gateway:
     build:
       context: .
       dockerfile: ./packages/api/Dockerfile
+    container_name: terrafusionpro-api-gateway
     ports:
-      - "3000:3000"
+      - "5002:5002"
     environment:
       - NODE_ENV=development
+      - API_GATEWAY_PORT=5002
+      - JWT_SECRET=terrafusionpro-dev-secret
     depends_on:
-      - mongodb
-      - redis
-      - property-service
       - user-service
+      - property-service
       - form-service
+      - analysis-service
+      - report-service
+    networks:
+      - terrafusionpro-network
 
-  property-service:
-    build:
-      context: .
-      dockerfile: ./services/property-service/Dockerfile
-    environment:
-      - NODE_ENV=development
-      - MONGODB_URI=mongodb://${MONGO_USERNAME:-terrafusion}:${MONGO_PASSWORD:-password}@mongodb:27017/terrafusion
-    depends_on:
-      - mongodb
-
-  user-service:
-    build:
-      context: .
-      dockerfile: ./services/user-service/Dockerfile
-    environment:
-      - NODE_ENV=development
-      - POSTGRES_URI=postgresql://${PGUSER:-terrafusion}:${PGPASSWORD:-password}@postgres:5432/${PGDATABASE:-terrafusion}
-      - REDIS_URI=redis://redis:6379
-    depends_on:
-      - postgres
-      - redis
-
-  form-service:
-    build:
-      context: .
-      dockerfile: ./services/form-service/Dockerfile
-    environment:
-      - NODE_ENV=development
-      - MONGODB_URI=mongodb://${MONGO_USERNAME:-terrafusion}:${MONGO_PASSWORD:-password}@mongodb:27017/terrafusion
-    depends_on:
-      - mongodb
-
+  # Web Client
   web-client:
     build:
       context: .
       dockerfile: ./packages/web-client/Dockerfile
+    container_name: terrafusionpro-web-client
     ports:
-      - "5000:80"
+      - "5000:5000"
     environment:
-      - API_URL=http://api-gateway:3000
+      - NODE_ENV=development
+      - API_URL=http://api-gateway:5002
     depends_on:
       - api-gateway
+    networks:
+      - terrafusionpro-network
+
+  # User Service
+  user-service:
+    build:
+      context: .
+      dockerfile: ./services/user-service/Dockerfile
+    container_name: terrafusionpro-user-service
+    environment:
+      - NODE_ENV=development
+      - SERVICE_PORT=5000
+      - DATABASE_URL=postgres://terrafusionpro:terrafusionpro@postgres:5432/terrafusionpro
+      - JWT_SECRET=terrafusionpro-dev-secret
+    depends_on:
+      - postgres
+    networks:
+      - terrafusionpro-network
+
+  # Property Service
+  property-service:
+    build:
+      context: .
+      dockerfile: ./services/property-service/Dockerfile
+    container_name: terrafusionpro-property-service
+    environment:
+      - NODE_ENV=development
+      - SERVICE_PORT=5001
+      - DATABASE_URL=postgres://terrafusionpro:terrafusionpro@postgres:5432/terrafusionpro
+    depends_on:
+      - postgres
+    networks:
+      - terrafusionpro-network
+
+  # Form Service
+  form-service:
+    build:
+      context: .
+      dockerfile: ./services/form-service/Dockerfile
+    container_name: terrafusionpro-form-service
+    environment:
+      - NODE_ENV=development
+      - SERVICE_PORT=5005
+      - DATABASE_URL=postgres://terrafusionpro:terrafusionpro@postgres:5432/terrafusionpro
+    depends_on:
+      - postgres
+    networks:
+      - terrafusionpro-network
+
+  # Analysis Service
+  analysis-service:
+    build:
+      context: .
+      dockerfile: ./services/analysis-service/Dockerfile
+    container_name: terrafusionpro-analysis-service
+    environment:
+      - NODE_ENV=development
+      - SERVICE_PORT=5003
+      - DATABASE_URL=postgres://terrafusionpro:terrafusionpro@postgres:5432/terrafusionpro
+    depends_on:
+      - postgres
+    networks:
+      - terrafusionpro-network
+
+  # Report Service
+  report-service:
+    build:
+      context: .
+      dockerfile: ./services/report-service/Dockerfile
+    container_name: terrafusionpro-report-service
+    environment:
+      - NODE_ENV=development
+      - SERVICE_PORT=5004
+      - DATABASE_URL=postgres://terrafusionpro:terrafusionpro@postgres:5432/terrafusionpro
+    depends_on:
+      - postgres
+    networks:
+      - terrafusionpro-network
+
+networks:
+  terrafusionpro-network:
+    driver: bridge
 
 volumes:
-  mongodb_data:
-  postgres_data:
-  redis_data:
+  postgres-data:
