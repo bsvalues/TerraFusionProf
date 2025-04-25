@@ -5,789 +5,574 @@
  * and processing for property data collection.
  */
 
-import http from 'http';
-import { URL } from 'url';
-import { forms, formSubmissions } from '../../packages/shared/schema/index.js';
-import storageModule from '../../packages/shared/storage.js';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { create, find, findById, update, remove, tables } from '../../packages/shared/storage.js';
 
-// Destructure the storage module for easier access
-const { db, create, find, findById, update, remove } = storageModule;
+// Initialize express app
+const app = express();
+const PORT = process.env.FORM_SERVICE_PORT || 5005;
 
-// Service configuration
-const PORT = process.env.SERVICE_PORT || 5005;
-const SERVICE_NAME = 'form-service';
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
 
-// Create HTTP server
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const path = url.pathname;
-  
-  console.log(`${req.method} ${path}`);
-  
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id, X-User-Role, X-User-Email');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-  
-  // Parse user information from headers (set by API Gateway)
-  const userId = req.headers['x-user-id'];
-  const userRole = req.headers['x-user-role'];
-  const userEmail = req.headers['x-user-email'];
-  
-  // Handle health check (used for liveness probe)
-  if (path === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      status: 'healthy',
-      service: SERVICE_NAME,
-      timestamp: new Date().toISOString()
-    }));
-    return;
-  }
-  
+// Validate form data against a schema
+function validateFormData(data, schema) {
   try {
-    // Get request body for POST and PUT requests
-    let body = '';
-    if (req.method === 'POST' || req.method === 'PUT') {
-      await new Promise((resolve) => {
-        req.on('data', chunk => {
-          body += chunk.toString();
-        });
-        req.on('end', resolve);
+    // Parse schema if it's a string
+    const schemaObj = typeof schema === 'string' ? JSON.parse(schema) : schema;
+    
+    // Simple validation for required fields
+    const errors = [];
+    if (schemaObj.required && Array.isArray(schemaObj.required)) {
+      for (const requiredField of schemaObj.required) {
+        if (data[requiredField] === undefined || data[requiredField] === null || data[requiredField] === '') {
+          errors.push(`Field "${requiredField}" is required`);
+        }
+      }
+    }
+    
+    // Validate properties if defined
+    if (schemaObj.properties) {
+      for (const [fieldName, fieldSchema] of Object.entries(schemaObj.properties)) {
+        const value = data[fieldName];
+        
+        // Skip if value is undefined or null and not required
+        if ((value === undefined || value === null) && 
+            (!schemaObj.required || !schemaObj.required.includes(fieldName))) {
+          continue;
+        }
+        
+        // Type validation
+        if (fieldSchema.type && value !== undefined && value !== null) {
+          switch (fieldSchema.type) {
+            case 'string':
+              if (typeof value !== 'string') {
+                errors.push(`Field "${fieldName}" must be a string`);
+              } else if (fieldSchema.minLength && value.length < fieldSchema.minLength) {
+                errors.push(`Field "${fieldName}" must be at least ${fieldSchema.minLength} characters long`);
+              } else if (fieldSchema.maxLength && value.length > fieldSchema.maxLength) {
+                errors.push(`Field "${fieldName}" must be at most ${fieldSchema.maxLength} characters long`);
+              } else if (fieldSchema.pattern && !new RegExp(fieldSchema.pattern).test(value)) {
+                errors.push(`Field "${fieldName}" must match the pattern ${fieldSchema.pattern}`);
+              }
+              break;
+            case 'number':
+            case 'integer':
+              const numValue = Number(value);
+              if (isNaN(numValue)) {
+                errors.push(`Field "${fieldName}" must be a number`);
+              } else if (fieldSchema.type === 'integer' && !Number.isInteger(numValue)) {
+                errors.push(`Field "${fieldName}" must be an integer`);
+              } else if (fieldSchema.minimum !== undefined && numValue < fieldSchema.minimum) {
+                errors.push(`Field "${fieldName}" must be at least ${fieldSchema.minimum}`);
+              } else if (fieldSchema.maximum !== undefined && numValue > fieldSchema.maximum) {
+                errors.push(`Field "${fieldName}" must be at most ${fieldSchema.maximum}`);
+              }
+              break;
+            case 'boolean':
+              if (typeof value !== 'boolean') {
+                errors.push(`Field "${fieldName}" must be a boolean`);
+              }
+              break;
+            case 'array':
+              if (!Array.isArray(value)) {
+                errors.push(`Field "${fieldName}" must be an array`);
+              } else if (fieldSchema.minItems && value.length < fieldSchema.minItems) {
+                errors.push(`Field "${fieldName}" must have at least ${fieldSchema.minItems} items`);
+              } else if (fieldSchema.maxItems && value.length > fieldSchema.maxItems) {
+                errors.push(`Field "${fieldName}" must have at most ${fieldSchema.maxItems} items`);
+              }
+              break;
+            case 'object':
+              if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+                errors.push(`Field "${fieldName}" must be an object`);
+              }
+              break;
+          }
+        }
+        
+        // Enum validation
+        if (fieldSchema.enum && !fieldSchema.enum.includes(value)) {
+          errors.push(`Field "${fieldName}" must be one of: ${fieldSchema.enum.join(', ')}`);
+        }
+      }
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  } catch (error) {
+    console.error('Error validating form data:', error);
+    return {
+      valid: false,
+      errors: ['Invalid schema or validation error']
+    };
+  }
+}
+
+// Calculate completion status of form data
+function calculateCompletionStatus(data, schema) {
+  try {
+    // Parse schema if it's a string
+    const schemaObj = typeof schema === 'string' ? JSON.parse(schema) : schema;
+    
+    // If no properties defined, return 0
+    if (!schemaObj.properties || Object.keys(schemaObj.properties).length === 0) {
+      return 0;
+    }
+    
+    const requiredFields = schemaObj.required || [];
+    const totalFields = Object.keys(schemaObj.properties).length;
+    let filledFields = 0;
+    
+    // Count filled fields
+    for (const [fieldName, fieldSchema] of Object.entries(schemaObj.properties)) {
+      const value = data[fieldName];
+      if (value !== undefined && value !== null && value !== '') {
+        filledFields++;
+      }
+    }
+    
+    // Calculate required fields completion
+    let completionRatio = 0;
+    if (requiredFields.length > 0) {
+      let filledRequiredFields = 0;
+      for (const field of requiredFields) {
+        const value = data[field];
+        if (value !== undefined && value !== null && value !== '') {
+          filledRequiredFields++;
+        }
+      }
+      // Required fields are weighted more heavily
+      completionRatio = (filledRequiredFields / requiredFields.length) * 0.7;
+    }
+    
+    // Add optional fields completion (weighted less)
+    const optionalFieldsCount = totalFields - requiredFields.length;
+    if (optionalFieldsCount > 0) {
+      const filledOptionalFields = filledFields - Math.min(filledFields, requiredFields.length);
+      completionRatio += (filledOptionalFields / optionalFieldsCount) * 0.3;
+    } else {
+      // If there are only required fields, use the required fields calculation
+      completionRatio = filledFields / totalFields;
+    }
+    
+    return Math.min(1, Math.max(0, completionRatio));
+  } catch (error) {
+    console.error('Error calculating completion status:', error);
+    return 0;
+  }
+}
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: 'form-service',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Get all forms
+app.get('/forms', async (req, res) => {
+  try {
+    const { limit = 10, offset = 0, sortBy = 'created_at', order = 'DESC' } = req.query;
+    
+    // Build filter from query params
+    const filter = {};
+    if (req.query.type) filter.type = req.query.type;
+    if (req.query.is_active !== undefined) filter.is_active = req.query.is_active === 'true';
+    
+    const forms = await find(
+      tables.FORMS, 
+      filter, 
+      { 
+        limit: parseInt(limit), 
+        offset: parseInt(offset),
+        orderBy: `${sortBy} ${order}`
+      }
+    );
+    
+    res.json({ forms });
+  } catch (error) {
+    console.error('Error getting forms:', error);
+    res.status(500).json({ error: 'Failed to retrieve forms' });
+  }
+});
+
+// Get form by ID
+app.get('/forms/:id', async (req, res) => {
+  try {
+    const form = await findById(tables.FORMS, req.params.id);
+    
+    if (!form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+    
+    res.json({ form });
+  } catch (error) {
+    console.error('Error getting form by ID:', error);
+    res.status(500).json({ error: 'Failed to retrieve form' });
+  }
+});
+
+// Create form
+app.post('/forms', async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      type,
+      schema,
+      uiSchema,
+      isActive = true,
+      isRequired = false,
+      propertyTypes,
+      createdBy
+    } = req.body;
+    
+    // Validate required fields
+    if (!title || !type || !schema) {
+      return res.status(400).json({ error: 'Missing required form fields' });
+    }
+    
+    // Validate schema is valid JSON
+    try {
+      if (typeof schema === 'string') {
+        JSON.parse(schema);
+      }
+    } catch (error) {
+      return res.status(400).json({ error: 'Invalid schema JSON' });
+    }
+    
+    // Convert to snake_case for database
+    const formData = {
+      title,
+      description,
+      type,
+      schema: typeof schema === 'object' ? JSON.stringify(schema) : schema,
+      ui_schema: typeof uiSchema === 'object' ? JSON.stringify(uiSchema) : uiSchema,
+      version: 1,
+      is_active: isActive,
+      is_required: isRequired,
+      property_types: propertyTypes ? JSON.stringify(propertyTypes) : null,
+      created_by: createdBy,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+    
+    const form = await create(tables.FORMS, formData);
+    
+    res.status(201).json({ form });
+  } catch (error) {
+    console.error('Error creating form:', error);
+    res.status(500).json({ error: 'Failed to create form' });
+  }
+});
+
+// Update form
+app.put('/forms/:id', async (req, res) => {
+  try {
+    const formId = req.params.id;
+    const form = await findById(tables.FORMS, formId);
+    
+    if (!form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+    
+    const {
+      title,
+      description,
+      type,
+      schema,
+      uiSchema,
+      isActive,
+      isRequired,
+      propertyTypes
+    } = req.body;
+    
+    // Validate schema is valid JSON if provided
+    if (schema) {
+      try {
+        if (typeof schema === 'string') {
+          JSON.parse(schema);
+        }
+      } catch (error) {
+        return res.status(400).json({ error: 'Invalid schema JSON' });
+      }
+    }
+    
+    // Convert to snake_case for database
+    const updateData = {};
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (type !== undefined) updateData.type = type;
+    if (schema !== undefined) updateData.schema = typeof schema === 'object' ? JSON.stringify(schema) : schema;
+    if (uiSchema !== undefined) updateData.ui_schema = typeof uiSchema === 'object' ? JSON.stringify(uiSchema) : uiSchema;
+    if (isActive !== undefined) updateData.is_active = isActive;
+    if (isRequired !== undefined) updateData.is_required = isRequired;
+    if (propertyTypes !== undefined) updateData.property_types = propertyTypes ? JSON.stringify(propertyTypes) : null;
+    
+    // Increment version
+    updateData.version = form.version + 1;
+    
+    // Add updated timestamp
+    updateData.updated_at = new Date();
+    
+    const updatedForm = await update(tables.FORMS, formId, updateData);
+    
+    res.json({ form: updatedForm });
+  } catch (error) {
+    console.error('Error updating form:', error);
+    res.status(500).json({ error: 'Failed to update form' });
+  }
+});
+
+// Delete form
+app.delete('/forms/:id', async (req, res) => {
+  try {
+    const formId = req.params.id;
+    
+    // Check if form exists
+    const form = await findById(tables.FORMS, formId);
+    if (!form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+    
+    // Check if there are any form submissions using this form
+    const submissions = await find(tables.FORM_SUBMISSIONS, { form_id: formId }, { limit: 1 });
+    if (submissions.length > 0) {
+      // Instead of deleting, just mark as inactive
+      await update(tables.FORMS, formId, { 
+        is_active: false,
+        updated_at: new Date()
+      });
+      
+      return res.json({ 
+        success: true, 
+        message: 'Form marked as inactive (cannot be deleted due to existing submissions)' 
       });
     }
     
-    // Parse JSON body if content-type is application/json
-    let data = {};
-    if (body && req.headers['content-type'] === 'application/json') {
-      try {
-        data = JSON.parse(body);
-      } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
-        return;
-      }
+    // Delete the form
+    const deleted = await remove(tables.FORMS, formId);
+    
+    if (!deleted) {
+      return res.status(500).json({ error: 'Failed to delete form' });
     }
     
-    // Form endpoints
-    if (path === '/forms' || path.startsWith('/forms/')) {
-      
-      // Get all forms
-      if (req.method === 'GET' && path === '/forms') {
-        try {
-          // Parse query parameters
-          const limit = parseInt(url.searchParams.get('limit')) || 100;
-          const offset = parseInt(url.searchParams.get('offset')) || 0;
-          const sortBy = url.searchParams.get('sortBy') || 'id';
-          const sortOrder = url.searchParams.get('sortOrder') || 'asc';
-          
-          // Filter forms based on query parameters
-          const filters = {};
-          if (url.searchParams.has('type')) {
-            filters.type = url.searchParams.get('type');
-          }
-          if (url.searchParams.has('isActive')) {
-            filters.isActive = url.searchParams.get('isActive') === 'true';
-          }
-          
-          // Find forms with filters, limit, offset, and ordering
-          const formList = await find(forms, filters, {
-            limit,
-            offset,
-            orderBy: {
-              [sortBy]: sortOrder
-            }
-          });
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ 
-            forms: formList,
-            total: formList.length, // In a real app, this would be the total count without limit
-            limit,
-            offset
-          }));
-        } catch (error) {
-          console.error('Error fetching forms:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error fetching forms' }));
-        }
-        return;
-      }
-      
-      // Get form by ID
-      if (req.method === 'GET' && path.match(/^\/forms\/\d+$/)) {
-        const formId = parseInt(path.split('/')[2]);
-        
-        try {
-          const form = await findById(forms, formId);
-          
-          if (!form) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Form not found' }));
-            return;
-          }
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(form));
-        } catch (error) {
-          console.error('Error fetching form:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error fetching form' }));
-        }
-        return;
-      }
-      
-      // Create form (admin or appraiser)
-      if (req.method === 'POST' && path === '/forms') {
-        // Check if user is authenticated and has appropriate role
-        if (!userId || (userRole !== 'admin' && userRole !== 'appraiser')) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Permission denied' }));
-          return;
-        }
-        
-        try {
-          // Validate required fields
-          const requiredFields = ['title', 'type', 'schema'];
-          for (const field of requiredFields) {
-            if (!data[field]) {
-              res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: `Missing required field: ${field}` }));
-              return;
-            }
-          }
-          
-          // Validate schema is valid JSON
-          try {
-            if (typeof data.schema === 'string') {
-              JSON.parse(data.schema);
-            }
-          } catch (err) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Invalid schema JSON' }));
-            return;
-          }
-          
-          // If UI schema is provided, validate it's valid JSON
-          if (data.uiSchema) {
-            try {
-              if (typeof data.uiSchema === 'string') {
-                JSON.parse(data.uiSchema);
-              }
-            } catch (err) {
-              res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Invalid UI schema JSON' }));
-              return;
-            }
-          }
-          
-          // Set form data
-          const formData = {
-            title: data.title,
-            description: data.description || null,
-            type: data.type,
-            schema: typeof data.schema === 'object' ? JSON.stringify(data.schema) : data.schema,
-            uiSchema: data.uiSchema ? (typeof data.uiSchema === 'object' ? JSON.stringify(data.uiSchema) : data.uiSchema) : null,
-            version: data.version || 1,
-            isActive: data.isActive !== undefined ? data.isActive : true,
-            isRequired: data.isRequired !== undefined ? data.isRequired : false,
-            propertyTypes: data.propertyTypes ? (typeof data.propertyTypes === 'object' ? JSON.stringify(data.propertyTypes) : data.propertyTypes) : null,
-            createdBy: userId || null,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          };
-          
-          // Create form
-          const newForm = await create(forms, formData);
-          
-          res.writeHead(201, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(newForm));
-        } catch (error) {
-          console.error('Error creating form:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error creating form' }));
-        }
-        return;
-      }
-      
-      // Update form (admin or creator)
-      if (req.method === 'PUT' && path.match(/^\/forms\/\d+$/)) {
-        const formId = parseInt(path.split('/')[2]);
-        
-        try {
-          // Check if form exists
-          const existingForm = await findById(forms, formId);
-          
-          if (!existingForm) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Form not found' }));
-            return;
-          }
-          
-          // Check if user is authorized to update this form
-          if (!userId || 
-              (userRole !== 'admin' && 
-               existingForm.createdBy !== parseInt(userId))) {
-            res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Permission denied' }));
-            return;
-          }
-          
-          // If schema is provided, validate it's valid JSON
-          if (data.schema) {
-            try {
-              if (typeof data.schema === 'string') {
-                JSON.parse(data.schema);
-              }
-            } catch (err) {
-              res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Invalid schema JSON' }));
-              return;
-            }
-          }
-          
-          // If UI schema is provided, validate it's valid JSON
-          if (data.uiSchema) {
-            try {
-              if (typeof data.uiSchema === 'string') {
-                JSON.parse(data.uiSchema);
-              }
-            } catch (err) {
-              res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Invalid UI schema JSON' }));
-              return;
-            }
-          }
-          
-          // If property types is provided, validate it's valid JSON
-          if (data.propertyTypes) {
-            try {
-              if (typeof data.propertyTypes === 'string') {
-                JSON.parse(data.propertyTypes);
-              }
-            } catch (err) {
-              res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Invalid property types JSON' }));
-              return;
-            }
-          }
-          
-          // Prepare form data for update
-          const formData = {
-            ...data,
-            schema: data.schema ? (typeof data.schema === 'object' ? JSON.stringify(data.schema) : data.schema) : existingForm.schema,
-            uiSchema: data.uiSchema ? (typeof data.uiSchema === 'object' ? JSON.stringify(data.uiSchema) : data.uiSchema) : existingForm.uiSchema,
-            propertyTypes: data.propertyTypes ? (typeof data.propertyTypes === 'object' ? JSON.stringify(data.propertyTypes) : data.propertyTypes) : existingForm.propertyTypes,
-            updatedAt: new Date()
-          };
-          
-          // Increment version if schema or uiSchema changed
-          if (data.schema || data.uiSchema) {
-            formData.version = existingForm.version + 1;
-          }
-          
-          // Update form
-          const updatedForm = await update(forms, formId, formData);
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(updatedForm));
-        } catch (error) {
-          console.error('Error updating form:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error updating form' }));
-        }
-        return;
-      }
-      
-      // Delete form (admin only)
-      if (req.method === 'DELETE' && path.match(/^\/forms\/\d+$/)) {
-        const formId = parseInt(path.split('/')[2]);
-        
-        // Check if user is authenticated and has admin role
-        if (!userId || userRole !== 'admin') {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Permission denied' }));
-          return;
-        }
-        
-        try {
-          // Check if form exists
-          const existingForm = await findById(forms, formId);
-          
-          if (!existingForm) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Form not found' }));
-            return;
-          }
-          
-          // Instead of physical deletion, deactivate the form
-          await update(forms, formId, { isActive: false });
-          
-          res.writeHead(204);
-          res.end();
-        } catch (error) {
-          console.error('Error deleting form:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error deleting form' }));
-        }
-        return;
-      }
-    }
-    
-    // Form submission endpoints
-    if (path.startsWith('/submissions')) {
-      
-      // Get all submissions for a report
-      if (req.method === 'GET' && path.match(/^\/submissions\/report\/\d+$/)) {
-        const reportId = parseInt(path.split('/')[3]);
-        
-        try {
-          // Find submissions for the report
-          const submissionList = await find(formSubmissions, { reportId }, {
-            orderBy: { submittedAt: 'desc' }
-          });
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ 
-            submissions: submissionList
-          }));
-        } catch (error) {
-          console.error('Error fetching submissions:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error fetching submissions' }));
-        }
-        return;
-      }
-      
-      // Get submission by ID
-      if (req.method === 'GET' && path.match(/^\/submissions\/\d+$/)) {
-        const submissionId = parseInt(path.split('/')[2]);
-        
-        try {
-          const submission = await findById(formSubmissions, submissionId);
-          
-          if (!submission) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Submission not found' }));
-            return;
-          }
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(submission));
-        } catch (error) {
-          console.error('Error fetching submission:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error fetching submission' }));
-        }
-        return;
-      }
-      
-      // Create or update form submission
-      if (req.method === 'POST' && path === '/submissions') {
-        // Check if user is authenticated
-        if (!userId) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Permission denied' }));
-          return;
-        }
-        
-        try {
-          // Validate required fields
-          const requiredFields = ['formId', 'reportId', 'data'];
-          for (const field of requiredFields) {
-            if (!data[field]) {
-              res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: `Missing required field: ${field}` }));
-              return;
-            }
-          }
-          
-          // Check if form exists
-          const existingForm = await findById(forms, data.formId);
-          
-          if (!existingForm) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Form not found' }));
-            return;
-          }
-          
-          // Validate data against form schema
-          const formSchema = typeof existingForm.schema === 'string' ? 
-            JSON.parse(existingForm.schema) : existingForm.schema;
-          
-          // Validate submission data
-          const validationResults = validateFormData(data.data, formSchema);
-          
-          // Set submission data
-          const submissionData = {
-            formId: data.formId,
-            reportId: data.reportId,
-            data: typeof data.data === 'object' ? JSON.stringify(data.data) : data.data,
-            submittedBy: userId,
-            submittedAt: new Date(),
-            updatedAt: new Date(),
-            completionStatus: calculateCompletionStatus(data.data, formSchema),
-            validationStatus: validationResults.valid,
-            validationErrors: validationResults.errors?.length > 0 ? 
-              JSON.stringify(validationResults.errors) : null
-          };
-          
-          // Check if a submission already exists for this form and report
-          const existingSubmissions = await find(formSubmissions, { 
-            formId: data.formId, 
-            reportId: data.reportId 
-          });
-          
-          let submission;
-          
-          if (existingSubmissions.length > 0) {
-            // Update existing submission
-            submission = await update(
-              formSubmissions, 
-              existingSubmissions[0].id, 
-              submissionData
-            );
-          } else {
-            // Create new submission
-            submission = await create(formSubmissions, submissionData);
-          }
-          
-          res.writeHead(existingSubmissions.length > 0 ? 200 : 201, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(submission));
-        } catch (error) {
-          console.error('Error submitting form:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error submitting form' }));
-        }
-        return;
-      }
-      
-      // Delete submission (admin or creator)
-      if (req.method === 'DELETE' && path.match(/^\/submissions\/\d+$/)) {
-        const submissionId = parseInt(path.split('/')[2]);
-        
-        try {
-          // Check if submission exists
-          const existingSubmission = await findById(formSubmissions, submissionId);
-          
-          if (!existingSubmission) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Submission not found' }));
-            return;
-          }
-          
-          // Check if user is authorized to delete this submission
-          if (!userId || 
-              (userRole !== 'admin' && 
-               existingSubmission.submittedBy !== parseInt(userId))) {
-            res.writeHead(403, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Permission denied' }));
-            return;
-          }
-          
-          // Delete submission
-          await remove(formSubmissions, submissionId);
-          
-          res.writeHead(204);
-          res.end();
-        } catch (error) {
-          console.error('Error deleting submission:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Error deleting submission' }));
-        }
-        return;
-      }
-    }
-    
-    // Form validation endpoint
-    if (req.method === 'POST' && path === '/validate') {
-      try {
-        // Validate required fields
-        if (!data.formId || !data.data) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Form ID and data are required' }));
-          return;
-        }
-        
-        // Check if form exists
-        const existingForm = await findById(forms, data.formId);
-        
-        if (!existingForm) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Form not found' }));
-          return;
-        }
-        
-        // Parse form schema
-        const formSchema = typeof existingForm.schema === 'string' ? 
-          JSON.parse(existingForm.schema) : existingForm.schema;
-        
-        // Validate data against form schema
-        const validationResults = validateFormData(data.data, formSchema);
-        
-        // Calculate completion status
-        const completionStatus = calculateCompletionStatus(data.data, formSchema);
-        
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          valid: validationResults.valid,
-          errors: validationResults.errors || [],
-          completionStatus
-        }));
-      } catch (error) {
-        console.error('Error validating form data:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Error validating form data' }));
-      }
-      return;
-    }
-    
-    // If no endpoint matched, return 404
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Endpoint not found' }));
+    res.json({ success: true, message: 'Form deleted successfully' });
   } catch (error) {
-    console.error('Unhandled error:', error);
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Internal server error' }));
+    console.error('Error deleting form:', error);
+    res.status(500).json({ error: 'Failed to delete form' });
   }
 });
 
-/**
- * Validate form data against a schema
- * @param {Object} data - Form data to validate
- * @param {Object} schema - JSON Schema to validate against
- * @returns {Object} - Validation results with valid flag and errors
- */
-function validateFormData(data, schema) {
-  // Simple validation implementation
-  // In a real application, this would use a library like Ajv
-  
-  // Parse data if it's a string
-  const formData = typeof data === 'string' ? JSON.parse(data) : data;
-  
-  // Initialize validation results
-  const results = {
-    valid: true,
-    errors: []
-  };
-  
-  // Validate required properties
-  if (schema.required && Array.isArray(schema.required)) {
-    for (const field of schema.required) {
-      if (formData[field] === undefined) {
-        results.valid = false;
-        results.errors.push({
-          field,
-          message: `Required field '${field}' is missing`
-        });
-      }
-    }
-  }
-  
-  // Validate property types
-  if (schema.properties) {
-    for (const [key, prop] of Object.entries(schema.properties)) {
-      // Skip if property is not provided
-      if (formData[key] === undefined) {
-        continue;
-      }
-      
-      const value = formData[key];
-      
-      // Type validation
-      if (prop.type === 'string' && typeof value !== 'string') {
-        results.valid = false;
-        results.errors.push({
-          field: key,
-          message: `Field '${key}' should be a string`
-        });
-      } else if (prop.type === 'number' && typeof value !== 'number') {
-        results.valid = false;
-        results.errors.push({
-          field: key,
-          message: `Field '${key}' should be a number`
-        });
-      } else if (prop.type === 'boolean' && typeof value !== 'boolean') {
-        results.valid = false;
-        results.errors.push({
-          field: key,
-          message: `Field '${key}' should be a boolean`
-        });
-      } else if (prop.type === 'array' && !Array.isArray(value)) {
-        results.valid = false;
-        results.errors.push({
-          field: key,
-          message: `Field '${key}' should be an array`
-        });
-      } else if (prop.type === 'object' && (typeof value !== 'object' || value === null || Array.isArray(value))) {
-        results.valid = false;
-        results.errors.push({
-          field: key,
-          message: `Field '${key}' should be an object`
-        });
-      }
-      
-      // String validations
-      if (typeof value === 'string') {
-        if (prop.minLength !== undefined && value.length < prop.minLength) {
-          results.valid = false;
-          results.errors.push({
-            field: key,
-            message: `Field '${key}' should be at least ${prop.minLength} characters long`
-          });
-        }
-        
-        if (prop.maxLength !== undefined && value.length > prop.maxLength) {
-          results.valid = false;
-          results.errors.push({
-            field: key,
-            message: `Field '${key}' should be at most ${prop.maxLength} characters long`
-          });
-        }
-        
-        if (prop.pattern && !new RegExp(prop.pattern).test(value)) {
-          results.valid = false;
-          results.errors.push({
-            field: key,
-            message: `Field '${key}' should match pattern ${prop.pattern}`
-          });
-        }
-      }
-      
-      // Number validations
-      if (typeof value === 'number') {
-        if (prop.minimum !== undefined && value < prop.minimum) {
-          results.valid = false;
-          results.errors.push({
-            field: key,
-            message: `Field '${key}' should be greater than or equal to ${prop.minimum}`
-          });
-        }
-        
-        if (prop.maximum !== undefined && value > prop.maximum) {
-          results.valid = false;
-          results.errors.push({
-            field: key,
-            message: `Field '${key}' should be less than or equal to ${prop.maximum}`
-          });
-        }
-      }
-      
-      // Array validations
-      if (Array.isArray(value)) {
-        if (prop.minItems !== undefined && value.length < prop.minItems) {
-          results.valid = false;
-          results.errors.push({
-            field: key,
-            message: `Field '${key}' should have at least ${prop.minItems} items`
-          });
-        }
-        
-        if (prop.maxItems !== undefined && value.length > prop.maxItems) {
-          results.valid = false;
-          results.errors.push({
-            field: key,
-            message: `Field '${key}' should have at most ${prop.maxItems} items`
-          });
-        }
-      }
-    }
-  }
-  
-  return results;
-}
-
-/**
- * Calculate completion status of form data
- * @param {Object} data - Form data
- * @param {Object} schema - JSON Schema
- * @returns {number} - Completion status as a decimal between 0 and 1
- */
-function calculateCompletionStatus(data, schema) {
-  // Parse data if it's a string
-  const formData = typeof data === 'string' ? JSON.parse(data) : data;
-  
-  // Get required fields from schema
-  const requiredFields = schema.required || [];
-  const properties = Object.keys(schema.properties || {});
-  
-  // If there are no properties, return 1.0 (complete)
-  if (properties.length === 0) {
-    return 1.0;
-  }
-  
-  // Count total fields and completed fields
-  let totalFields = properties.length;
-  let completedFields = 0;
-  
-  // For each property, check if it's completed
-  for (const key of properties) {
-    const value = formData[key];
-    const isRequired = requiredFields.includes(key);
+// Submit form
+app.post('/submissions', async (req, res) => {
+  try {
+    const {
+      formId,
+      reportId,
+      data,
+      submittedBy
+    } = req.body;
     
-    // If the field is undefined or null
-    if (value === undefined || value === null) {
-      // If it's required, it's not complete
-      if (isRequired) {
-        // Do nothing, completedFields stays the same
-      } else {
-        // If it's not required, it's still counted as complete
-        completedFields++;
-      }
-    } else {
-      // If it's a string and not empty, it's complete
-      if (typeof value === 'string' && value.trim() !== '') {
-        completedFields++;
-      } 
-      // If it's an array and not empty, it's complete
-      else if (Array.isArray(value) && value.length > 0) {
-        completedFields++;
-      }
-      // If it's an object and has some keys, it's complete
-      else if (typeof value === 'object' && Object.keys(value).length > 0) {
-        completedFields++;
-      }
-      // If it's a boolean or number, it's complete
-      else if (typeof value === 'boolean' || typeof value === 'number') {
-        completedFields++;
-      }
+    // Validate required fields
+    if (!formId || !reportId || !data || !submittedBy) {
+      return res.status(400).json({ error: 'Missing required submission fields' });
     }
-  }
-  
-  // Calculate completion status
-  const completionStatus = completedFields / totalFields;
-  
-  // Round to 2 decimal places and ensure it's between 0 and 1
-  return Math.max(0, Math.min(1, Math.round(completionStatus * 100) / 100));
-}
-
-// Initialize database and start server
-storageModule.initializeDatabase()
-  .then(() => {
-    server.listen(PORT, '0.0.0.0', () => {
-      console.log(`Form service running on port ${PORT}`);
+    
+    // Check if form exists
+    const form = await findById(tables.FORMS, formId);
+    if (!form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+    
+    // Check if report exists
+    const report = await findById(tables.APPRAISAL_REPORTS, reportId);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    
+    // Validate form data against schema
+    const formData = typeof data === 'string' ? JSON.parse(data) : data;
+    const formSchema = typeof form.schema === 'string' ? JSON.parse(form.schema) : form.schema;
+    const validationResult = validateFormData(formData, formSchema);
+    
+    // Calculate completion status
+    const completionStatus = calculateCompletionStatus(formData, formSchema);
+    
+    // Convert to snake_case for database
+    const submissionData = {
+      form_id: formId,
+      report_id: reportId,
+      data: typeof data === 'object' ? JSON.stringify(data) : data,
+      submitted_by: submittedBy,
+      submitted_at: new Date(),
+      updated_at: new Date(),
+      completion_status: completionStatus,
+      validation_status: validationResult.valid,
+      validation_errors: validationResult.errors.length > 0 ? JSON.stringify(validationResult.errors) : null
+    };
+    
+    const submission = await create(tables.FORM_SUBMISSIONS, submissionData);
+    
+    res.status(201).json({ 
+      submission,
+      completionStatus,
+      validationResult
     });
-  })
-  .catch(error => {
-    console.error('Failed to initialize database:', error);
-    process.exit(1);
-  });
-
-// Handle graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('Shutting down form service...');
-  await storageModule.closeDatabase();
-  server.close(() => {
-    console.log('Form service shut down complete');
-    process.exit(0);
-  });
+  } catch (error) {
+    console.error('Error submitting form:', error);
+    res.status(500).json({ error: 'Failed to submit form' });
+  }
 });
 
-export default server;
+// Get form submissions
+app.get('/submissions', async (req, res) => {
+  try {
+    const { limit = 10, offset = 0, sortBy = 'submitted_at', order = 'DESC' } = req.query;
+    
+    // Build filter from query params
+    const filter = {};
+    if (req.query.form_id) filter.form_id = parseInt(req.query.form_id);
+    if (req.query.report_id) filter.report_id = parseInt(req.query.report_id);
+    if (req.query.submitted_by) filter.submitted_by = parseInt(req.query.submitted_by);
+    
+    const submissions = await find(
+      tables.FORM_SUBMISSIONS, 
+      filter, 
+      { 
+        limit: parseInt(limit), 
+        offset: parseInt(offset),
+        orderBy: `${sortBy} ${order}`
+      }
+    );
+    
+    res.json({ submissions });
+  } catch (error) {
+    console.error('Error getting form submissions:', error);
+    res.status(500).json({ error: 'Failed to retrieve form submissions' });
+  }
+});
+
+// Get form submission by ID
+app.get('/submissions/:id', async (req, res) => {
+  try {
+    const submission = await findById(tables.FORM_SUBMISSIONS, req.params.id);
+    
+    if (!submission) {
+      return res.status(404).json({ error: 'Form submission not found' });
+    }
+    
+    const form = await findById(tables.FORMS, submission.form_id);
+    
+    res.json({ 
+      submission,
+      form
+    });
+  } catch (error) {
+    console.error('Error getting form submission by ID:', error);
+    res.status(500).json({ error: 'Failed to retrieve form submission' });
+  }
+});
+
+// Update form submission
+app.put('/submissions/:id', async (req, res) => {
+  try {
+    const submissionId = req.params.id;
+    const submission = await findById(tables.FORM_SUBMISSIONS, submissionId);
+    
+    if (!submission) {
+      return res.status(404).json({ error: 'Form submission not found' });
+    }
+    
+    const { data } = req.body;
+    
+    if (!data) {
+      return res.status(400).json({ error: 'No data provided' });
+    }
+    
+    // Get form to access schema
+    const form = await findById(tables.FORMS, submission.form_id);
+    if (!form) {
+      return res.status(404).json({ error: 'Associated form not found' });
+    }
+    
+    // Validate form data against schema
+    const formData = typeof data === 'string' ? JSON.parse(data) : data;
+    const formSchema = typeof form.schema === 'string' ? JSON.parse(form.schema) : form.schema;
+    const validationResult = validateFormData(formData, formSchema);
+    
+    // Calculate completion status
+    const completionStatus = calculateCompletionStatus(formData, formSchema);
+    
+    // Convert to snake_case for database
+    const updateData = {
+      data: typeof data === 'object' ? JSON.stringify(data) : data,
+      updated_at: new Date(),
+      completion_status: completionStatus,
+      validation_status: validationResult.valid,
+      validation_errors: validationResult.errors.length > 0 ? JSON.stringify(validationResult.errors) : null
+    };
+    
+    const updatedSubmission = await update(tables.FORM_SUBMISSIONS, submissionId, updateData);
+    
+    res.json({ 
+      submission: updatedSubmission,
+      completionStatus,
+      validationResult
+    });
+  } catch (error) {
+    console.error('Error updating form submission:', error);
+    res.status(500).json({ error: 'Failed to update form submission' });
+  }
+});
+
+// Validate form data without submitting
+app.post('/validate', async (req, res) => {
+  try {
+    const { formId, data } = req.body;
+    
+    if (!formId || !data) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    // Get form to access schema
+    const form = await findById(tables.FORMS, formId);
+    if (!form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+    
+    // Validate form data against schema
+    const formData = typeof data === 'string' ? JSON.parse(data) : data;
+    const formSchema = typeof form.schema === 'string' ? JSON.parse(form.schema) : form.schema;
+    const validationResult = validateFormData(formData, formSchema);
+    
+    // Calculate completion status
+    const completionStatus = calculateCompletionStatus(formData, formSchema);
+    
+    res.json({ 
+      valid: validationResult.valid,
+      errors: validationResult.errors,
+      completionStatus
+    });
+  } catch (error) {
+    console.error('Error validating form data:', error);
+    res.status(500).json({ error: 'Failed to validate form data' });
+  }
+});
+
+// Start the server
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Form service running on port ${PORT}`);
+});
+
+export default app;

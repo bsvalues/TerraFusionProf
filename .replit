@@ -31,6 +31,14 @@ args = "User Service"
 task = "workflow.run"
 args = "Report Service"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Form Service"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Analysis Service"
+
 [[workflows.workflow]]
 name = "TerraFusionPro Web Client"
 author = "agent"
@@ -76,6 +84,24 @@ task = "shell.exec"
 args = "node services/report-service/index.js"
 waitForPort = 5007
 
+[[workflows.workflow]]
+name = "Form Service"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node services/form-service/index.js"
+waitForPort = 5005
+
+[[workflows.workflow]]
+name = "Analysis Service"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node services/analysis-service/index.js"
+waitForPort = 5006
+
 [deployment]
 run = ["sh", "-c", "node packages/web-client/index.js"]
 
@@ -94,6 +120,14 @@ externalPort = 3001
 [[ports]]
 localPort = 5004
 externalPort = 3002
+
+[[ports]]
+localPort = 5005
+externalPort = 4200
+
+[[ports]]
+localPort = 5006
+externalPort = 5000
 
 [[ports]]
 localPort = 5007

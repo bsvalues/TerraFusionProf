@@ -1,20 +1,16 @@
 {
-  "name": "@terrafusionpro/analysis-service",
+  "name": "analysis-service",
   "version": "1.0.0",
-  "description": "TerraFusionPro Analysis Service",
+  "description": "Analysis Service for TerraFusionPro",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
-  "keywords": [
-    "analysis",
-    "service",
-    "valuation",
-    "real-estate",
-    "appraisal"
-  ],
-  "author": "TerraFusionPro Team",
-  "license": "UNLICENSED"
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "helmet": "^7.0.0"
+  }
 }
