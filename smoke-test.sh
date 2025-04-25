@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Smoke test script to verify all services are healthy
 
-set -e
+# Allow the script to continue even when a service is not healthy
+# set -e
 
 echo "Starting smoke tests..."
 
@@ -38,7 +39,7 @@ EXTERNAL_SERVICES=(
   "geoassessmentpro:3014" 
   "bsbcmaster:3015" 
   "bsincomevaluation:3016" 
-  "terrafusion_mock-up:3017"
+  "terrafusionmockup:3017"
 )
 
 # Track successes and failures
@@ -55,7 +56,18 @@ test_service() {
   echo "Testing $service_name ($category) on port $port..."
   
   # Try to access the health endpoint
-  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/health || echo "000")
+  if [[ "$service_name" == "api-gateway" ]]; then
+    echo "  Checking API Gateway health at: http://localhost:$port/api/health"
+    HTTP_STATUS=$(curl -s -o /tmp/curl_output.txt -w "%{http_code}" http://localhost:$port/api/health || echo "000")
+    echo "  Response status: $HTTP_STATUS"
+    cat /tmp/curl_output.txt | head -10
+  else
+    HTTP_ENDPOINT="http://localhost:$port/health"
+    echo "  Checking service health at: $HTTP_ENDPOINT"
+    HTTP_STATUS=$(curl -s -o /tmp/curl_output.txt -w "%{http_code}" $HTTP_ENDPOINT || echo "000")
+    echo "  Response status: $HTTP_STATUS"
+    cat /tmp/curl_output.txt | head -10
+  fi
   
   if [[ "$HTTP_STATUS" == "200" ]]; then
     echo "✅ $service_name is healthy (HTTP 200)"
