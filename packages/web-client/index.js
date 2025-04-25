@@ -215,40 +215,38 @@ const htmlTemplate = `<!DOCTYPE html>
             navigateTo('/login');
             return;
           }
-          return \`
-            <h1>Welcome to TerraFusionPro</h1>
-            <p>The next-generation real estate appraisal platform.</p>
+          return '<h1>Welcome to TerraFusionPro</h1>' +
+            '<p>The next-generation real estate appraisal platform.</p>' +
             
-            <div class="dashboard-grid">
-              <div class="card">
-                <div class="card-icon">📊</div>
-                <h3>Recent Properties</h3>
-                <p>You have 12 properties in the system.</p>
-                <a href="/properties" class="btn">View Properties</a>
-              </div>
+            '<div class="dashboard-grid">' +
+              '<div class="card">' +
+                '<div class="card-icon">📊</div>' +
+                '<h3>Recent Properties</h3>' +
+                '<p>You have 12 properties in the system.</p>' +
+                '<a href="/properties" class="btn">View Properties</a>' +
+              '</div>' +
               
-              <div class="card">
-                <div class="card-icon">📝</div>
-                <h3>Recent Reports</h3>
-                <p>5 reports pending review.</p>
-                <a href="/reports" class="btn">View Reports</a>
-              </div>
+              '<div class="card">' +
+                '<div class="card-icon">📝</div>' +
+                '<h3>Recent Reports</h3>' +
+                '<p>5 reports pending review.</p>' +
+                '<a href="/reports" class="btn">View Reports</a>' +
+              '</div>' +
               
-              <div class="card">
-                <div class="card-icon">🏘️</div>
-                <h3>Market Analysis</h3>
-                <p>Market trends updated for Q2 2025.</p>
-                <a href="/analytics" class="btn">View Analysis</a>
-              </div>
+              '<div class="card">' +
+                '<div class="card-icon">🏘️</div>' +
+                '<h3>Market Analysis</h3>' +
+                '<p>Market trends updated for Q2 2025.</p>' +
+                '<a href="/analytics" class="btn">View Analysis</a>' +
+              '</div>' +
               
-              <div class="card">
-                <div class="card-icon">📋</div>
-                <h3>Form Templates</h3>
-                <p>15 templates available.</p>
-                <a href="/forms" class="btn">Manage Forms</a>
-              </div>
-            </div>
-          \`;
+              '<div class="card">' +
+                '<div class="card-icon">📋</div>' +
+                '<h3>Form Templates</h3>' +
+                '<p>15 templates available.</p>' +
+                '<a href="/forms" class="btn">Manage Forms</a>' +
+              '</div>' +
+            '</div>';
         }
       },
       '/login': {
@@ -258,51 +256,49 @@ const htmlTemplate = `<!DOCTYPE html>
             navigateTo('/');
             return;
           }
-          return \`
-            <div class="login-form">
-              <h2>Login to TerraFusionPro</h2>
-              <div class="alert alert-danger hidden" id="login-error"></div>
-              <form id="login-form">
-                <div class="form-group">
-                  <label for="email">Email Address</label>
-                  <input type="email" id="email" name="email" required>
-                </div>
-                <div class="form-group">
-                  <label for="password">Password</label>
-                  <input type="password" id="password" name="password" required>
-                </div>
-                <button type="submit" class="btn btn-block">Login</button>
-              </form>
-            </div>
-            <script>
-              document.getElementById('login-form').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const email = document.getElementById('email').value;
-                const password = document.getElementById('password').value;
+          return '<div class="login-form">' +
+              '<h2>Login to TerraFusionPro</h2>' +
+              '<div class="alert alert-danger hidden" id="login-error"></div>' +
+              '<form id="login-form">' +
+                '<div class="form-group">' +
+                  '<label for="email">Email Address</label>' +
+                  '<input type="email" id="email" name="email" required>' +
+                '</div>' +
+                '<div class="form-group">' +
+                  '<label for="password">Password</label>' +
+                  '<input type="password" id="password" name="password" required>' +
+                '</div>' +
+                '<button type="submit" class="btn btn-block">Login</button>' +
+              '</form>' +
+            '</div>' +
+            '<script>' +
+              'document.getElementById("login-form").addEventListener("submit", async (e) => {' +
+                'e.preventDefault();' +
+                'const email = document.getElementById("email").value;' +
+                'const password = document.getElementById("password").value;' +
                 
-                try {
-                  console.log('Login attempt with:', email);
+                'try {' +
+                  'console.log("Login attempt with:", email);' +
                   
-                  // In a real app, this would call the authentication API
-                  // For demo purposes, we'll just simulate a successful login
-                  if (email === 'demo@terrafusionpro.com' && password === 'demo123') {
-                    const token = 'demo-jwt-token';
-                    localStorage.setItem('auth_token', token);
-                    window.location.href = '/';
-                  } else {
-                    const errorEl = document.getElementById('login-error');
-                    errorEl.textContent = 'Invalid email or password';
-                    errorEl.classList.remove('hidden');
-                  }
-                } catch (error) {
-                  console.error('Login error:', error);
-                  const errorEl = document.getElementById('login-error');
-                  errorEl.textContent = 'An error occurred during login';
-                  errorEl.classList.remove('hidden');
-                }
-              });
-            </script>
-          \`;
+                  '// In a real app, this would call the authentication API' +
+                  '// For demo purposes, we\'ll just simulate a successful login' +
+                  'if (email === "demo@terrafusionpro.com" && password === "demo123") {' +
+                    'const token = "demo-jwt-token";' +
+                    'localStorage.setItem("auth_token", token);' +
+                    'window.location.href = "/";' +
+                  '} else {' +
+                    'const errorEl = document.getElementById("login-error");' +
+                    'errorEl.textContent = "Invalid email or password";' +
+                    'errorEl.classList.remove("hidden");' +
+                  '}' +
+                '} catch (error) {' +
+                  'console.error("Login error:", error);' +
+                  'const errorEl = document.getElementById("login-error");' +
+                  'errorEl.textContent = "An error occurred during login";' +
+                  'errorEl.classList.remove("hidden");' +
+                '}' +
+              '});' +
+            '</script>';
         }
       },
       '/properties': {
@@ -312,33 +308,31 @@ const htmlTemplate = `<!DOCTYPE html>
             navigateTo('/login');
             return;
           }
-          return \`
-            <h1>Properties</h1>
-            <p>View and manage your property portfolio.</p>
+          return '<h1>Properties</h1>' +
+            '<p>View and manage your property portfolio.</p>' +
             
-            <div class="dashboard-grid">
-              <div class="card">
-                <h3>123 Main St</h3>
-                <p>Single Family Home</p>
-                <p>4 Beds, 3 Baths, 2,500 sqft</p>
-                <a href="/properties/1" class="btn">View Details</a>
-              </div>
+            '<div class="dashboard-grid">' +
+              '<div class="card">' +
+                '<h3>123 Main St</h3>' +
+                '<p>Single Family Home</p>' +
+                '<p>4 Beds, 3 Baths, 2,500 sqft</p>' +
+                '<a href="/properties/1" class="btn">View Details</a>' +
+              '</div>' +
               
-              <div class="card">
-                <h3>456 Oak Ave</h3>
-                <p>Condo</p>
-                <p>2 Beds, 2 Baths, 1,200 sqft</p>
-                <a href="/properties/2" class="btn">View Details</a>
-              </div>
+              '<div class="card">' +
+                '<h3>456 Oak Ave</h3>' +
+                '<p>Condo</p>' +
+                '<p>2 Beds, 2 Baths, 1,200 sqft</p>' +
+                '<a href="/properties/2" class="btn">View Details</a>' +
+              '</div>' +
               
-              <div class="card">
-                <h3>789 Pine Rd</h3>
-                <p>Commercial</p>
-                <p>Office Building, 10,000 sqft</p>
-                <a href="/properties/3" class="btn">View Details</a>
-              </div>
-            </div>
-          \`;
+              '<div class="card">' +
+                '<h3>789 Pine Rd</h3>' +
+                '<p>Commercial</p>' +
+                '<p>Office Building, 10,000 sqft</p>' +
+                '<a href="/properties/3" class="btn">View Details</a>' +
+              '</div>' +
+            '</div>';
         }
       },
       '/reports': {
@@ -348,33 +342,31 @@ const htmlTemplate = `<!DOCTYPE html>
             navigateTo('/login');
             return;
           }
-          return \`
-            <h1>Appraisal Reports</h1>
-            <p>View and manage your appraisal reports.</p>
+          return '<h1>Appraisal Reports</h1>' +
+            '<p>View and manage your appraisal reports.</p>' +
             
-            <div class="dashboard-grid">
-              <div class="card">
-                <h3>Report #A12345</h3>
-                <p>123 Main St</p>
-                <p>Status: Draft</p>
-                <a href="/reports/1" class="btn">Edit Report</a>
-              </div>
+            '<div class="dashboard-grid">' +
+              '<div class="card">' +
+                '<h3>Report #A12345</h3>' +
+                '<p>123 Main St</p>' +
+                '<p>Status: Draft</p>' +
+                '<a href="/reports/1" class="btn">Edit Report</a>' +
+              '</div>' +
               
-              <div class="card">
-                <h3>Report #A12346</h3>
-                <p>456 Oak Ave</p>
-                <p>Status: Pending Review</p>
-                <a href="/reports/2" class="btn">View Report</a>
-              </div>
+              '<div class="card">' +
+                '<h3>Report #A12346</h3>' +
+                '<p>456 Oak Ave</p>' +
+                '<p>Status: Pending Review</p>' +
+                '<a href="/reports/2" class="btn">View Report</a>' +
+              '</div>' +
               
-              <div class="card">
-                <h3>Report #A12347</h3>
-                <p>789 Pine Rd</p>
-                <p>Status: Finalized</p>
-                <a href="/reports/3" class="btn">View Report</a>
-              </div>
-            </div>
-          \`;
+              '<div class="card">' +
+                '<h3>Report #A12347</h3>' +
+                '<p>789 Pine Rd</p>' +
+                '<p>Status: Finalized</p>' +
+                '<a href="/reports/3" class="btn">View Report</a>' +
+              '</div>' +
+            '</div>';
         }
       },
       '/analytics': {
@@ -385,30 +377,28 @@ const htmlTemplate = `<!DOCTYPE html>
             return;
           }
           console.log('Navigated to Analytics');
-          return \`
-            <h1>Market Analytics</h1>
-            <p>View real estate market trends and analysis.</p>
+          return '<h1>Market Analytics</h1>' +
+            '<p>View real estate market trends and analysis.</p>' +
             
-            <div class="dashboard-grid">
-              <div class="card">
-                <h3>Price Trends</h3>
-                <p>Average price in your area: $450,000</p>
-                <p>Year-over-year change: +5.2%</p>
-              </div>
+            '<div class="dashboard-grid">' +
+              '<div class="card">' +
+                '<h3>Price Trends</h3>' +
+                '<p>Average price in your area: $450,000</p>' +
+                '<p>Year-over-year change: +5.2%</p>' +
+              '</div>' +
               
-              <div class="card">
-                <h3>Market Conditions</h3>
-                <p>Current status: Seller's Market</p>
-                <p>Average days on market: 12</p>
-              </div>
+              '<div class="card">' +
+                '<h3>Market Conditions</h3>' +
+                '<p>Current status: Seller\'s Market</p>' +
+                '<p>Average days on market: 12</p>' +
+              '</div>' +
               
-              <div class="card">
-                <h3>Comparable Properties</h3>
-                <p>15 recent sales in target area</p>
-                <a href="/comparables" class="btn">View Comparables</a>
-              </div>
-            </div>
-          \`;
+              '<div class="card">' +
+                '<h3>Comparable Properties</h3>' +
+                '<p>15 recent sales in target area</p>' +
+                '<a href="/comparables" class="btn">View Comparables</a>' +
+              '</div>' +
+            '</div>';
         }
       },
       '/health': {
@@ -438,7 +428,7 @@ const htmlTemplate = `<!DOCTYPE html>
         render: () => '<h1>Page Not Found</h1><p>Sorry, the page you are looking for does not exist.</p>'
       };
       
-      document.title = \`TerraFusionPro - \${route.title}\`;
+      document.title = 'TerraFusionPro - ' + route.title;
       app.innerHTML = route.render();
     }
     
