@@ -1,47 +1,70 @@
 /**
  * TerraFusionPro Shared Package
  * 
- * This package contains shared utilities, types, and components that are used
- * across multiple packages in the TerraFusionPro monorepo.
+ * This is the main entry point for the shared utilities and models package.
+ * It exports database schemas, validation utilities, and common functions
+ * used across the platform.
  */
 
-// Export shared utilities
-const validation = require('./validation');
-const formatting = require('./formatting');
-const dataTransforms = require('./dataTransforms');
-const constants = require('./constants');
-const hooks = require('./hooks');
-const api = require('./api');
+// Export database schema and utilities
+export * from './schema/index.js';
+export * from './storage.js';
 
-// Type definitions would be in separate .d.ts files
-
-module.exports = {
-  validation,
-  formatting,
-  dataTransforms,
-  constants,
-  hooks,
-  api,
-  
-  // Common utility functions
-  convertUnits: (value, fromUnit, toUnit) => {
-    // Implementation of unit conversion (e.g., sq ft to sq m)
-    return dataTransforms.convertUnits(value, fromUnit, toUnit);
-  },
-
-  formatCurrency: (value, currencyCode = 'USD', options = {}) => {
-    // Format numeric values as currency
-    return formatting.formatCurrency(value, currencyCode, options);
-  },
-
-  validatePropertyData: (propertyData) => {
-    // Validate property data against schema
-    return validation.validatePropertyData(propertyData);
-  },
-
-  // Common components would be exported here if this were a TypeScript project
-  // with React components
+// Utility functions
+export const formatCurrency = (amount) => {
+  const dollars = amount / 100;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(dollars);
 };
 
-// This file serves as the main entry point for the shared package
-console.log('TerraFusionPro Shared package initialized');
+export const formatDate = (date) => {
+  if (!date) return '';
+  const d = new Date(date);
+  return d.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+};
+
+export const formatDateTime = (date) => {
+  if (!date) return '';
+  const d = new Date(date);
+  return d.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+// Validation utilities
+export const validateEmail = (email) => {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
+};
+
+export const validateZipCode = (zipCode) => {
+  const re = /^\d{5}(-\d{4})?$/;
+  return re.test(zipCode);
+};
+
+export const validatePhone = (phone) => {
+  const re = /^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})$/;
+  return re.test(phone);
+};
+
+// Export default object with all utilities
+export default {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  validateEmail,
+  validateZipCode,
+  validatePhone
+};

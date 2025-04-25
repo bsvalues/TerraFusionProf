@@ -6,80 +6,128 @@
  * and other cross-cutting concerns.
  */
 
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+import express from 'express';
+import cors from 'cors';
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import jwt from 'jsonwebtoken';
 
+// Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
+
+// JWT Secret for authentication
+const JWT_SECRET = process.env.JWT_SECRET || 'development-jwt-secret';
+
+// Service URLs (would come from environment variables or service discovery in production)
+const PROPERTY_SERVICE_URL = process.env.PROPERTY_SERVICE_URL || 'http://localhost:5001';
+const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:5002';
+const REPORT_SERVICE_URL = process.env.REPORT_SERVICE_URL || 'http://localhost:5003';
+const ANALYSIS_SERVICE_URL = process.env.ANALYSIS_SERVICE_URL || 'http://localhost:5004';
+const FORM_SERVICE_URL = process.env.FORM_SERVICE_URL || 'http://localhost:5005';
 
 // Middleware
 app.use(cors());
-app.use(helmet());
-app.use(morgan('combined'));
 app.use(express.json());
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', service: 'api-gateway' });
-});
+// Authentication middleware
+const authenticate = (req, res, next) => {
+  // Skip auth for some paths
+  const publicPaths = ['/api/health', '/api/auth/login', '/api/auth/register'];
+  if (publicPaths.includes(req.path)) {
+    return next();
+  }
 
-// Service routes
-const PROPERTY_SERVICE_URL = process.env.PROPERTY_SERVICE_URL || 'http://property-service:3001';
-const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://user-service:3002';
-const FORM_SERVICE_URL = process.env.FORM_SERVICE_URL || 'http://form-service:3003';
-const ANALYSIS_SERVICE_URL = process.env.ANALYSIS_SERVICE_URL || 'http://analysis-service:3004';
-const REPORT_SERVICE_URL = process.env.REPORT_SERVICE_URL || 'http://report-service:3005';
+  // Check for token
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized - No token provided' });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    // Verify token
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Unauthorized - Invalid token' });
+  }
+};
 
-// Property service proxy
-app.use('/api/properties', createProxyMiddleware({
-  target: PROPERTY_SERVICE_URL,
-  changeOrigin: true,
-  pathRewrite: { '^/api/properties': '/properties' }
-}));
-
-// User service proxy
-app.use('/api/users', createProxyMiddleware({
-  target: USER_SERVICE_URL,
-  changeOrigin: true,
-  pathRewrite: { '^/api/users': '/users' }
-}));
-
-// Form service proxy
-app.use('/api/forms', createProxyMiddleware({
-  target: FORM_SERVICE_URL,
-  changeOrigin: true,
-  pathRewrite: { '^/api/forms': '/forms' }
-}));
-
-// Analysis service proxy
-app.use('/api/analysis', createProxyMiddleware({
-  target: ANALYSIS_SERVICE_URL,
-  changeOrigin: true,
-  pathRewrite: { '^/api/analysis': '/analysis' }
-}));
-
-// Report service proxy
-app.use('/api/reports', createProxyMiddleware({
-  target: REPORT_SERVICE_URL,
-  changeOrigin: true,
-  pathRewrite: { '^/api/reports': '/reports' }
-}));
-
-// Error handling middleware
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('API Gateway Error:', err);
   res.status(500).json({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
+    message: process.env.NODE_ENV === 'production' ? 'An unexpected error occurred' : err.message
   });
+});
+
+// API Gateway info endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    service: 'api-gateway',
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
+  });
+});
+
+// API Gateway routes and proxy configuration
+app.use('/api', authenticate);
+
+// Property service routes
+app.use('/api/properties', createProxyMiddleware({
+  target: PROPERTY_SERVICE_URL,
+  pathRewrite: { '^/api/properties': '/properties' },
+  changeOrigin: true
+}));
+
+// User service routes 
+app.use('/api/users', createProxyMiddleware({
+  target: USER_SERVICE_URL,
+  pathRewrite: { '^/api/users': '/users' },
+  changeOrigin: true
+}));
+
+// Authentication routes (handled by user service)
+app.use('/api/auth', createProxyMiddleware({
+  target: USER_SERVICE_URL,
+  pathRewrite: { '^/api/auth': '/auth' },
+  changeOrigin: true
+}));
+
+// Report service routes
+app.use('/api/reports', createProxyMiddleware({
+  target: REPORT_SERVICE_URL,
+  pathRewrite: { '^/api/reports': '/reports' },
+  changeOrigin: true
+}));
+
+// Analysis service routes
+app.use('/api/analysis', createProxyMiddleware({
+  target: ANALYSIS_SERVICE_URL,
+  pathRewrite: { '^/api/analysis': '/analysis' },
+  changeOrigin: true
+}));
+
+// Form service routes
+app.use('/api/forms', createProxyMiddleware({
+  target: FORM_SERVICE_URL,
+  pathRewrite: { '^/api/forms': '/forms' },
+  changeOrigin: true
+}));
+
+// Catch all unmatched routes
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Not Found - No matching API route' });
 });
 
 // Start the server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API Gateway listening on port ${PORT}`);
+  console.log(`API Gateway running on port ${PORT}`);
 });
 
-module.exports = app;
+export default app;
