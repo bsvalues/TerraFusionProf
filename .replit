@@ -39,6 +39,10 @@ args = "Form Service"
 task = "workflow.run"
 args = "Analysis Service"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Apollo Federation Gateway"
+
 [[workflows.workflow]]
 name = "TerraFusionPro Web Client"
 author = "agent"
@@ -102,8 +106,25 @@ task = "shell.exec"
 args = "node services/analysis-service/index.js"
 waitForPort = 5006
 
+[[workflows.workflow]]
+name = "Apollo Federation Gateway"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node apps/core-gateway/src/index.js"
+waitForPort = 4000
+
 [deployment]
 run = ["sh", "-c", "node packages/web-client/index.js"]
+
+[[ports]]
+localPort = 4000
+externalPort = 5173
+
+[[ports]]
+localPort = 4001
+externalPort = 6000
 
 [[ports]]
 localPort = 5000

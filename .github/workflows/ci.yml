@@ -2,48 +2,87 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main]
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [
+          core-gateway,
+          terrafusionsync, 
+          terrafusionpro, 
+          terraflow, 
+          terraminer, 
+          terraagent,
+          terraf, 
+          terralegislativepulsepub, 
+          bcbscostapp, 
+          bcbsgeoassessmentpro,
+          bcbslevy, 
+          bcbswebhub, 
+          bcbsdataengine, 
+          bcbspacsmapping,
+          geoassessmentpro, 
+          bsbcmaster, 
+          bsincomevaluation, 
+          terrafusion_mock-up
+        ]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build
+        run: pnpm nx build ${{ matrix.project }}
+      - name: Test
+        run: pnpm nx test ${{ matrix.project }}
+
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
           node-version: 18
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run lint
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install
+      - name: Lint
+        run: pnpm nx lint --all
 
-  test:
+  e2e:
     runs-on: ubuntu-latest
+    needs: [build]
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
           node-version: 18
-          cache: 'npm'
-      - run: npm ci
-      - run: npm test
-
-  build:
-    runs-on: ubuntu-latest
-    needs: [lint, test]
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 18
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run build
-      - name: Archive build artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: build-artifacts
-          path: |
-            packages/*/dist
-            services/*/dist
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install
+      - name: Start services
+        run: |
+          pnpm nx serve core-gateway &
+          sleep 10
+      - name: Run smoke tests
+        run: ./smoke-test.sh
