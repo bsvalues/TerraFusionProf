@@ -892,14 +892,71 @@ const htmlContent = `<!DOCTYPE html>
 // Write the index.html file
 fs.writeFileSync(path.join(publicDir, 'index.html'), htmlContent);
 
+// API Gateway URL
+const API_GATEWAY_URL = 'http://localhost:5002';
+
+// Function to proxy requests to the API Gateway
+function proxyRequest(req, res, targetUrl) {
+  const target = new URL(targetUrl);
+  
+  const options = {
+    hostname: target.hostname,
+    port: target.port,
+    path: target.pathname + target.search,
+    method: req.method,
+    headers: {
+      ...req.headers,
+      host: target.host
+    }
+  };
+  
+  console.log(`Proxying to API Gateway: ${targetUrl}`);
+  
+  const proxyReq = http.request(options, (proxyRes) => {
+    // Copy status code and headers
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    
+    // Forward response data
+    proxyRes.pipe(res);
+  });
+  
+  // Handle proxy errors
+  proxyReq.on('error', (err) => {
+    console.error('Proxy error:', err);
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'Bad Gateway',
+      message: 'Failed to proxy request to API Gateway',
+      details: err.message
+    }));
+  });
+  
+  // Forward request body
+  req.pipe(proxyReq);
+}
+
 // Create the HTTP server
 const server = http.createServer((req, res) => {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
-  // Parse the URL
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+  
+  // Check if this is an API request
+  if (req.url.startsWith('/api/')) {
+    // Proxy to API Gateway
+    proxyRequest(req, res, `${API_GATEWAY_URL}${req.url}`);
+    return;
+  }
+  
+  // Parse the URL for static files
   let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
   
   // Get the file extension
