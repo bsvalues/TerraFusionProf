@@ -3,302 +3,284 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-// API Base URL
-const API_BASE_URL = '/api';
-
 const Dashboard = () => {
-  const { isAuthenticated, currentUser } = useAuth();
-  const navigate = useNavigate();
-  
-  const [recentProperties, setRecentProperties] = useState([]);
-  const [pendingReports, setPendingReports] = useState([]);
-  const [activeReports, setActiveReports] = useState([]);
-  const [statistics, setStatistics] = useState(null);
+  const [properties, setProperties] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [marketUpdates, setMarketUpdates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
+  const [error, setError] = useState('');
+  
+  const { currentUser } = useAuth();
+  
   useEffect(() => {
-    if (!isAuthenticated) {
-      navigate('/login');
-      return;
-    }
-    
     const fetchDashboardData = async () => {
       try {
-        // Fetch recent properties
-        const propertiesResponse = await fetch(`${API_BASE_URL}/properties?limit=5&sort=created_at&order=desc`);
+        setLoading(true);
         
+        // Fetch properties
+        const propertiesResponse = await fetch('/api/properties?limit=5', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('terraFusionToken') || sessionStorage.getItem('terraFusionToken')}`
+          }
+        });
+        
+        // Fetch reports
+        const reportsResponse = await fetch('/api/reports?limit=5', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('terraFusionToken') || sessionStorage.getItem('terraFusionToken')}`
+          }
+        });
+        
+        // Fetch market updates
+        const marketUpdatesResponse = await fetch('/api/market-updates?limit=3', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('terraFusionToken') || sessionStorage.getItem('terraFusionToken')}`
+          }
+        });
+        
+        // Process responses
         if (propertiesResponse.ok) {
           const propertiesData = await propertiesResponse.json();
-          setRecentProperties(propertiesData.properties || []);
+          setProperties(propertiesData.properties || []);
         }
         
-        // Fetch pending reports
-        const pendingResponse = await fetch(`${API_BASE_URL}/reports?status=pending_review,in_review&limit=5`);
-        
-        if (pendingResponse.ok) {
-          const pendingData = await pendingResponse.json();
-          setPendingReports(pendingData.reports || []);
+        if (reportsResponse.ok) {
+          const reportsData = await reportsResponse.json();
+          setReports(reportsData.reports || []);
         }
         
-        // Fetch active reports (draft or active)
-        const activeResponse = await fetch(`${API_BASE_URL}/reports?status=draft&limit=5`);
-        
-        if (activeResponse.ok) {
-          const activeData = await activeResponse.json();
-          setActiveReports(activeData.reports || []);
+        if (marketUpdatesResponse.ok) {
+          const marketData = await marketUpdatesResponse.json();
+          setMarketUpdates(marketData.updates || []);
         }
-        
-        // Fetch statistics
-        const statsResponse = await fetch(`${API_BASE_URL}/statistics`);
-        
-        if (statsResponse.ok) {
-          const statsData = await statsResponse.json();
-          setStatistics(statsData);
-        }
-        
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
         setError('Failed to load dashboard data. Please try again later.');
+        
+        // Fallback data for development
+        if (process.env.NODE_ENV !== 'production') {
+          setProperties([
+            { id: 1, address: '123 Main St', city: 'San Francisco', state: 'CA', property_type: 'Residential', created_at: '2025-04-10T10:30:00Z' },
+            { id: 2, address: '456 Market St', city: 'San Francisco', state: 'CA', property_type: 'Commercial', created_at: '2025-04-08T14:15:00Z' },
+            { id: 3, address: '789 Oak Ave', city: 'Oakland', state: 'CA', property_type: 'Residential', created_at: '2025-04-05T09:45:00Z' }
+          ]);
+          
+          setReports([
+            { id: 1, report_number: 'RA-2025-001', status: 'draft', title: 'Residential Appraisal - 123 Main St', created_at: '2025-04-15T11:20:00Z' },
+            { id: 2, report_number: 'CA-2025-001', status: 'in_review', title: 'Commercial Appraisal - 456 Market St', created_at: '2025-04-12T16:30:00Z' },
+            { id: 3, report_number: 'RA-2025-002', status: 'approved', title: 'Residential Appraisal - 789 Oak Ave', created_at: '2025-04-08T13:45:00Z' }
+          ]);
+          
+          setMarketUpdates([
+            { id: 1, title: 'Bay Area Market Update - Q2 2025', summary: 'Housing prices increased by 3.2% in the San Francisco Bay Area during Q2 2025.', date: '2025-04-20T08:00:00Z' },
+            { id: 2, title: 'Commercial Real Estate Trends', summary: 'Office space vacancy rates continue to decline as companies return to in-person work.', date: '2025-04-15T09:30:00Z' }
+          ]);
+        }
+      } finally {
         setLoading(false);
       }
     };
     
     fetchDashboardData();
-  }, [isAuthenticated, navigate]);
-
-  if (loading) {
-    return (
-      <div className="container" style={{ padding: '2rem', textAlign: 'center' }}>
-        <h2>Loading dashboard...</h2>
-        <div className="spinner"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="container">
-        <div className="error-message" style={{ padding: '2rem', backgroundColor: '#fff0f0', borderRadius: '8px', marginBottom: '2rem' }}>
-          <h2>Error</h2>
-          <p>{error}</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="btn btn-primary"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  }, []);
+  
   const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString();
+    const options = { year: 'numeric', month: 'short', day: 'numeric' };
+    return new Date(dateString).toLocaleDateString(undefined, options);
   };
-
-  // Get status badge color class
-  const getStatusClass = (status) => {
-    switch (status) {
-      case 'draft': return 'status-draft';
-      case 'pending_review': return 'status-pending';
-      case 'in_review': return 'status-review';
-      case 'approved': return 'status-approved';
-      case 'finalized': return 'status-finalized';
-      case 'archived': return 'status-archived';
-      default: return '';
-    }
+  
+  // Get status badge class based on report status
+  const getStatusBadgeClass = (status) => {
+    const statusMap = {
+      'draft': 'status-draft',
+      'in_review': 'status-review',
+      'pending': 'status-pending',
+      'approved': 'status-approved',
+      'finalized': 'status-finalized',
+      'archived': 'status-archived'
+    };
+    
+    return `status-badge ${statusMap[status] || 'status-draft'}`;
   };
-
+  
   return (
-    <div className="container dashboard-container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <h1>Dashboard</h1>
-        <div>
-          <Link to="/properties/new" className="btn btn-primary" style={{ marginRight: '0.5rem' }}>
-            Add Property
-          </Link>
-          <Link to="/reports/new" className="btn btn-secondary">
-            Create Report
-          </Link>
-        </div>
-      </div>
+    <div className="dashboard-container">
+      <h1>Dashboard</h1>
       
-      {/* Statistics Overview */}
-      <div className="stats-overview" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-        <div className="card" style={{ textAlign: 'center', padding: '1.5rem' }}>
-          <h3>Properties</h3>
-          <div style={{ fontSize: '2.5rem', fontWeight: 'bold', margin: '0.5rem 0', color: '#2563eb' }}>
-            {statistics?.propertyCount || '0'}
-          </div>
-          <p>Total properties</p>
+      {error && (
+        <div className="alert alert-danger" role="alert">
+          {error}
         </div>
-        
-        <div className="card" style={{ textAlign: 'center', padding: '1.5rem' }}>
-          <h3>Reports</h3>
-          <div style={{ fontSize: '2.5rem', fontWeight: 'bold', margin: '0.5rem 0', color: '#2563eb' }}>
-            {statistics?.reportCount || '0'}
-          </div>
-          <p>Total reports</p>
-        </div>
-        
-        <div className="card" style={{ textAlign: 'center', padding: '1.5rem' }}>
-          <h3>Pending Review</h3>
-          <div style={{ fontSize: '2.5rem', fontWeight: 'bold', margin: '0.5rem 0', color: '#f59e0b' }}>
-            {statistics?.pendingReviewCount || '0'}
-          </div>
-          <p>Awaiting review</p>
-        </div>
-        
-        <div className="card" style={{ textAlign: 'center', padding: '1.5rem' }}>
-          <h3>Completed</h3>
-          <div style={{ fontSize: '2.5rem', fontWeight: 'bold', margin: '0.5rem 0', color: '#10b981' }}>
-            {statistics?.completedCount || '0'}
-          </div>
-          <p>Finalized reports</p>
-        </div>
-      </div>
+      )}
       
-      {/* Recent Activity */}
-      <div className="activity-section" style={{ marginBottom: '2rem' }}>
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h2>Recent Activity</h2>
-            <Link to="/reports" className="btn btn-text">View All Reports</Link>
+      {loading ? (
+        <div className="spinner"></div>
+      ) : (
+        <>
+          <div className="dashboard-welcome">
+            <h2>Welcome, {currentUser?.first_name || 'User'}!</h2>
+            <p>Here's an overview of your recent activity and important updates.</p>
           </div>
           
-          <div className="tabs" style={{ marginBottom: '1.5rem' }}>
-            <button className="tab active">All</button>
-            <button className="tab">Requires Attention</button>
-            <button className="tab">Recently Updated</button>
+          <div className="dashboard-stats">
+            <div className="stat-card">
+              <div className="stat-value">{properties.length}</div>
+              <div className="stat-label">Recent Properties</div>
+            </div>
+            
+            <div className="stat-card">
+              <div className="stat-value">{reports.length}</div>
+              <div className="stat-label">Active Reports</div>
+            </div>
+            
+            <div className="stat-card">
+              <div className="stat-value">4</div>
+              <div className="stat-label">Pending Tasks</div>
+            </div>
+            
+            <div className="stat-card">
+              <div className="stat-value">{marketUpdates.length}</div>
+              <div className="stat-label">Market Updates</div>
+            </div>
           </div>
           
-          {pendingReports.length > 0 ? (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ padding: '0.75rem', textAlign: 'left' }}>Report</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left' }}>Property</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left' }}>Status</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left' }}>Date</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendingReports.map(report => (
-                  <tr key={report.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                    <td style={{ padding: '0.75rem' }}>
-                      <Link to={`/reports/${report.id}`} style={{ color: '#2563eb', textDecoration: 'none' }}>
-                        {report.title || `Report #${report.report_number}`}
-                      </Link>
-                    </td>
-                    <td style={{ padding: '0.75rem' }}>
-                      {report.property ? (
-                        <Link to={`/properties/${report.property_id}`} style={{ color: '#2563eb', textDecoration: 'none' }}>
-                          {report.property.address}
-                        </Link>
-                      ) : (
-                        <span>Unknown Property</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '0.75rem' }}>
-                      <span className={`status-badge ${getStatusClass(report.status)}`}>
-                        {report.status?.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td style={{ padding: '0.75rem' }}>{formatDate(report.updated_at || report.created_at)}</td>
-                    <td style={{ padding: '0.75rem' }}>
-                      <Link to={`/reports/${report.id}`} className="btn btn-sm btn-primary">View</Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p>No pending reports at this time.</p>
-          )}
-        </div>
-      </div>
-      
-      {/* Recent Properties */}
-      <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h2>Recent Properties</h2>
-        <Link to="/properties" className="btn btn-text">View All Properties</Link>
-      </div>
-      
-      <div className="dashboard-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
-        {recentProperties.length > 0 ? (
-          recentProperties.map(property => (
-            <div key={property.id} className="card" style={{ position: 'relative' }}>
-              <h3>{property.address}</h3>
-              <p>{property.city}, {property.state} {property.zip_code}</p>
-              
-              <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
-                <p><strong>Type:</strong> {property.property_type?.replace('_', ' ') || 'N/A'}</p>
-                {property.building_size && (
-                  <p><strong>Size:</strong> {property.building_size}</p>
-                )}
-                {property.year_built && (
-                  <p><strong>Year Built:</strong> {property.year_built}</p>
-                )}
+          <div className="dashboard-grid">
+            <div className="card">
+              <div className="card-header">
+                <h2>Recent Properties</h2>
+                <Link to="/properties" className="btn btn-text">View All</Link>
               </div>
               
-              <Link to={`/properties/${property.id}`} className="btn btn-primary">View Details</Link>
-              <Link to={`/reports/new?property_id=${property.id}`} className="btn btn-outline" style={{ marginLeft: '0.5rem' }}>
-                Create Report
-              </Link>
+              {properties.length > 0 ? (
+                <ul className="list-items">
+                  {properties.map(property => (
+                    <li key={property.id} className="list-item">
+                      <div className="list-item-main">
+                        <h3>
+                          <Link to={`/properties/${property.id}`}>
+                            {property.address}
+                          </Link>
+                        </h3>
+                        <div className="list-item-details">
+                          <span>{property.city}, {property.state}</span>
+                          <span className="list-item-category">{property.property_type}</span>
+                        </div>
+                      </div>
+                      <div className="list-item-date">
+                        {formatDate(property.created_at)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-state">No properties available.</p>
+              )}
+              
+              <div className="card-footer">
+                <Link to="/properties/new" className="btn btn-primary">Add New Property</Link>
+              </div>
             </div>
-          ))
-        ) : (
-          <div className="card">
-            <h3>No Properties Found</h3>
-            <p>You haven't added any properties yet.</p>
-            <Link to="/properties/new" className="btn btn-primary" style={{ marginTop: '1rem' }}>Add Property</Link>
-          </div>
-        )}
-      </div>
-      
-      {/* Your Reports */}
-      <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '2rem 0 1rem' }}>
-        <h2>Your Draft Reports</h2>
-        <Link to="/reports?status=draft" className="btn btn-text">View All Drafts</Link>
-      </div>
-      
-      <div className="dashboard-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
-        {activeReports.length > 0 ? (
-          activeReports.map(report => (
-            <div key={report.id} className="card" style={{ position: 'relative' }}>
-              <div style={{ position: 'absolute', top: '1rem', right: '1rem' }}>
-                <span className={`status-badge ${getStatusClass(report.status)}`}>
-                  {report.status?.replace('_', ' ')}
-                </span>
+            
+            <div className="card">
+              <div className="card-header">
+                <h2>Active Reports</h2>
+                <Link to="/reports" className="btn btn-text">View All</Link>
               </div>
               
-              <h3>{report.title || `Report #${report.report_number}`}</h3>
-              <p><strong>Report #:</strong> {report.report_number}</p>
+              {reports.length > 0 ? (
+                <ul className="list-items">
+                  {reports.map(report => (
+                    <li key={report.id} className="list-item">
+                      <div className="list-item-main">
+                        <h3>
+                          <Link to={`/reports/${report.id}`}>
+                            {report.title}
+                          </Link>
+                        </h3>
+                        <div className="list-item-details">
+                          <span>{report.report_number}</span>
+                          <span className={getStatusBadgeClass(report.status)}>
+                            {report.status?.replace('_', ' ')}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="list-item-date">
+                        {formatDate(report.created_at)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-state">No reports available.</p>
+              )}
               
-              <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
-                <p><strong>Client:</strong> {report.client_name || 'N/A'}</p>
-                <p><strong>Created:</strong> {formatDate(report.created_at)}</p>
-                <p><strong>Updated:</strong> {formatDate(report.updated_at || report.created_at)}</p>
+              <div className="card-footer">
+                <Link to="/reports/new" className="btn btn-primary">Create New Report</Link>
               </div>
-              
-              <Link to={`/reports/${report.id}`} className="btn btn-primary">Continue Editing</Link>
             </div>
-          ))
-        ) : (
-          <div className="card">
-            <h3>No Draft Reports</h3>
-            <p>You don't have any reports in draft status.</p>
-            <Link to="/reports/new" className="btn btn-primary" style={{ marginTop: '1rem' }}>Create New Report</Link>
+            
+            <div className="card">
+              <div className="card-header">
+                <h2>Market Updates</h2>
+                <Link to="/market-analysis" className="btn btn-text">View All</Link>
+              </div>
+              
+              {marketUpdates.length > 0 ? (
+                <ul className="list-items">
+                  {marketUpdates.map(update => (
+                    <li key={update.id} className="list-item">
+                      <div className="list-item-main">
+                        <h3>
+                          <Link to={`/market-analysis/${update.id}`}>
+                            {update.title}
+                          </Link>
+                        </h3>
+                        <p className="list-item-summary">{update.summary}</p>
+                      </div>
+                      <div className="list-item-date">
+                        {formatDate(update.date)}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-state">No market updates available.</p>
+              )}
+            </div>
+            
+            <div className="card">
+              <div className="card-header">
+                <h2>Quick Actions</h2>
+              </div>
+              
+              <div className="quick-actions">
+                <Link to="/properties/new" className="quick-action-btn">
+                  <span className="icon">🏢</span>
+                  <span>Add Property</span>
+                </Link>
+                
+                <Link to="/reports/new" className="quick-action-btn">
+                  <span className="icon">📄</span>
+                  <span>Create Report</span>
+                </Link>
+                
+                <Link to="/data-collection" className="quick-action-btn">
+                  <span className="icon">📱</span>
+                  <span>Field Collection</span>
+                </Link>
+                
+                <Link to="/market-analysis/new" className="quick-action-btn">
+                  <span className="icon">📊</span>
+                  <span>Analyze Market</span>
+                </Link>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };

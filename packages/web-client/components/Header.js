@@ -3,65 +3,62 @@
  */
 
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 const Header = () => {
   const { currentUser, isAuthenticated, logout } = useAuth();
-
+  const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
+  
   const handleLogout = () => {
     logout();
+    navigate('/login');
   };
-
+  
   return (
     <header className="navbar">
-      <div className="logo">
-        <Link to="/">
-          <svg width="180" height="45" viewBox="0 0 240 60" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <g>
-              <path d="M45 15L30 5L15 15V35L30 45L45 35V15Z" fill="#2563EB"/>
-              <path d="M30 5L15 15V35L30 45V25L45 15V35L30 45L45 35V15L30 5Z" fill="#1E40AF"/>
-              <path d="M30 5V25L15 15L30 5Z" fill="#60A5FA"/>
-              <path d="M30 25L30 45L15 35V15L30 25Z" fill="#3B82F6"/>
-            </g>
-            <text x="60" y="35" fill="#2563EB" fontSize="24" fontWeight="bold">TerraFusionPro</text>
-          </svg>
-        </Link>
-      </div>
-      
-      <nav className="nav-links">
-        {isAuthenticated ? (
-          <>
-            <Link to="/" className="btn btn-text">Dashboard</Link>
-            <Link to="/properties" className="btn btn-text">Properties</Link>
-            <Link to="/reports" className="btn btn-text">Reports</Link>
-            <Link to="/analysis" className="btn btn-text">Analysis</Link>
-            
-            <div style={{ display: 'flex', alignItems: 'center', marginLeft: '1rem' }}>
-              <span style={{ marginRight: '0.5rem' }}>
-                {currentUser?.first_name}
-              </span>
-              <div style={{ position: 'relative' }}>
-                <Link to="/account" className="btn btn-outline">
-                  My Account
-                </Link>
-                <button 
-                  onClick={handleLogout}
-                  className="btn btn-danger"
-                  style={{ marginLeft: '0.5rem' }}
-                >
-                  Logout
+      <div className="container">
+        <div className="logo">
+          <Link to="/">
+            <img src="/terrafusion-logo.svg" alt="TerraFusionPro Logo" height="40" />
+            TerraFusionPro
+          </Link>
+        </div>
+        
+        <nav className="nav-links">
+          {isAuthenticated ? (
+            <>
+              <Link to="/dashboard">Dashboard</Link>
+              <Link to="/properties">Properties</Link>
+              <Link to="/reports">Reports</Link>
+              <Link to="/analysis">Analysis</Link>
+              
+              <div className="user-dropdown">
+                <button className="user-dropdown-toggle">
+                  {currentUser?.first_name || 'User'} <span className="caret"></span>
                 </button>
+                <div className="user-dropdown-menu">
+                  <Link to="/profile">Profile</Link>
+                  <Link to="/settings">Settings</Link>
+                  <hr />
+                  <button onClick={handleLogout}>Log Out</button>
+                </div>
               </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <Link to="/login" className="btn btn-primary">Login</Link>
-            <Link to="/register" className="btn btn-outline" style={{ marginLeft: '0.5rem' }}>Register</Link>
-          </>
-        )}
-      </nav>
+              
+              <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
+                {theme === 'dark' ? '☀️' : '🌙'}
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="btn btn-text">Login</Link>
+              <Link to="/register" className="btn btn-primary">Register</Link>
+            </>
+          )}
+        </nav>
+      </div>
     </header>
   );
 };
