@@ -70,7 +70,7 @@ const resolvers = {
 };
 
 // List of all integrated apps with their GraphQL endpoints
-const apps = [
+const externalApps = [
   { name: 'terrafusionsync', url: 'http://localhost:3001/graphql' },
   { name: 'terrafusionpro', url: 'http://localhost:3002/graphql' },
   { name: 'terraflow', url: 'http://localhost:3003/graphql' },
@@ -89,6 +89,18 @@ const apps = [
   { name: 'bsincomevaluation', url: 'http://localhost:3016/graphql' },
   { name: 'terrafusionmockup', url: 'http://localhost:3017/graphql' }
 ];
+
+// List of existing TerraFusion services with their current port configuration
+const existingServices = [
+  { name: 'user-service', url: 'http://localhost:5004/graphql' },
+  { name: 'property-service', url: 'http://localhost:5003/graphql' },
+  { name: 'form-service', url: 'http://localhost:5005/graphql' },
+  { name: 'analysis-service', url: 'http://localhost:5006/graphql' },
+  { name: 'report-service', url: 'http://localhost:5007/graphql' }
+];
+
+// Combine all apps
+const apps = [...externalApps, ...existingServices];
 
 // Function to check if a service is available
 const checkServiceAvailability = (url) => {
@@ -120,6 +132,28 @@ const checkServiceAvailability = (url) => {
   });
 };
 
+// For now, we're using a mock schema for demonstration since our services don't have 
+// actual GraphQL endpoints exposed
+const generateMockSchemaForService = (serviceName) => {
+  // Generate a basic schema for each service
+  return `
+    extend type Query {
+      ${serviceName}Info: ServiceInfo
+      ${serviceName}Health: HealthStatus
+    }
+    
+    type ServiceInfo {
+      name: String
+      version: String
+    }
+    
+    type HealthStatus {
+      status: String
+      timestamp: String
+    }
+  `;
+};
+
 // Start with our own schema until federation is ready
 let gateway = null;
 let server = null;
@@ -139,44 +173,71 @@ const setupGateway = async () => {
     
     console.log(`Found ${availableCount} available services out of ${apps.length}`);
     
-    if (availableCount === 0) {
-      console.log('No services available, using local schema only');
-      // Use local schema when no services are available
-      server = new ApolloServer({
-        typeDefs,
-        resolvers,
-        context: ({ req }) => {
-          const token = req.headers.authorization || '';
-          return { token };
-        }
-      });
-    } else {
-      console.log('Creating federation gateway with available services');
-      // Create the gateway with available services
-      const serviceList = availableServices.map(service => ({
-        name: service.name,
-        url: service.url
-      }));
+    // For this demonstration, we'll use a local schema regardless of service availability
+    // since our services don't have actual GraphQL endpoints yet
+    console.log('Using local schema for demonstration');
+    
+    // Enhanced typeDefs to include information about available services
+    const enhancedTypeDefs = `
+      type Query {
+        serviceInfo: ServiceInfo
+        healthCheck: HealthStatus
+        availableServices: [Service]
+      }
       
-      gateway = new ApolloGateway({
-        supergraphSdl: new IntrospectAndCompose({
-          subgraphs: serviceList,
+      type ServiceInfo {
+        name: String
+        version: String
+        services: [Service]
+      }
+      
+      type Service {
+        name: String
+        url: String
+        status: String
+        available: Boolean
+      }
+      
+      type HealthStatus {
+        status: String
+        timestamp: String
+      }
+    `;
+    
+    // Enhanced resolvers to provide information about available services
+    const enhancedResolvers = {
+      Query: {
+        serviceInfo: () => ({
+          name: 'TerraFusionPro Gateway',
+          version: '1.0.0',
+          services: apps.map(app => ({ 
+            name: app.name, 
+            url: app.url,
+            status: 'pending' 
+          }))
         }),
-        buildService: ({ name, url }) => {
-          console.log(`Configuring service: ${name} at ${url}`);
-          return new AuthDataSource({ url });
-        },
-      });
-      
-      server = new ApolloServer({
-        gateway,
-        subscriptions: false,
-        context: ({ req }) => {
-          const token = req.headers.authorization || '';
-          return { token };
-        }
-      });
-    }
+        healthCheck: () => ({
+          status: 'healthy',
+          timestamp: new Date().toISOString()
+        }),
+        availableServices: () => availabilityResults.map(service => ({
+          name: service.name,
+          url: service.url,
+          status: service.isAvailable ? 'up' : 'down',
+          available: service.isAvailable
+        }))
+      }
+    };
+    
+    // Create standalone server with our enhanced schema
+    server = new ApolloServer({
+      typeDefs: enhancedTypeDefs,
+      resolvers: enhancedResolvers,
+      context: ({ req }) => {
+        const token = req.headers.authorization || '';
+        return { token };
+      }
+    });
     
     return server;
   } catch (error) {
