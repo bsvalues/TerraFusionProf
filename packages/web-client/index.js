@@ -1,342 +1,497 @@
 /**
  * TerraFusionPro Web Client
  * 
- * A simple HTTP server that serves a static HTML dashboard for the TerraFusionPro platform.
- * Uses Node.js http module directly to avoid path-to-regexp issues.
+ * This server handles the web client application, using the native HTTP module to
+ * avoid dependency issues with path-to-regexp in Express.
  */
 
 import http from 'http';
-import { fileURLToPath } from 'url';
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // Get the current directory path
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Create the public directory if it doesn't exist
-const publicDir = path.join(__dirname, 'public');
-if (!fs.existsSync(publicDir)) {
-  fs.mkdirSync(publicDir, { recursive: true });
-}
+// Configure server
+const PORT = process.env.WEB_CLIENT_PORT || 5000;
+const API_URL = process.env.API_URL || 'http://localhost:5002';
 
-// Create a simple HTML file for demonstration
-const indexHtml = `
-<!DOCTYPE html>
+// Basic HTML template with React inclusion
+const htmlTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TerraFusionPro</title>
+  <title>TerraFusionPro - Real Estate Appraisal Platform</title>
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      margin: 0;
-      padding: 0;
-      background-color: #f7f9fc;
+      line-height: 1.6;
       color: #333;
-    }
-    header {
-      background-color: #2b4b80;
-      color: white;
-      padding: 1rem;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      background-color: #f8f9fa;
     }
     .container {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 1rem;
+      padding: 0 15px;
+    }
+    header {
+      background-color: #2c3e50;
+      color: white;
+      padding: 1rem 0;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     .logo {
       font-size: 1.5rem;
       font-weight: bold;
+      color: #ecf0f1;
+      text-decoration: none;
     }
-    .dashboard {
+    nav ul {
+      display: flex;
+      list-style: none;
+    }
+    nav ul li {
+      margin-left: 1.5rem;
+    }
+    nav ul li a {
+      color: #ecf0f1;
+      text-decoration: none;
+      transition: color 0.3s;
+    }
+    nav ul li a:hover {
+      color: #3498db;
+    }
+    .main-content {
+      padding: 2rem 0;
+    }
+    .dashboard-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 1rem;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.5rem;
       margin-top: 2rem;
     }
     .card {
-      background-color: white;
+      background: white;
       border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
       padding: 1.5rem;
-      transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+      transition: transform 0.3s, box-shadow 0.3s;
     }
     .card:hover {
       transform: translateY(-5px);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
     }
-    .card-title {
-      font-size: 1.2rem;
+    .card h3 {
       margin-bottom: 1rem;
-      color: #2b4b80;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 0.5rem;
+      color: #2c3e50;
     }
-    .stat {
-      display: flex;
-      align-items: center;
-      margin-bottom: 0.5rem;
+    .card-icon {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      color: #3498db;
     }
-    .stat-label {
-      flex: 1;
-      color: #777;
+    .btn {
+      display: inline-block;
+      background: #3498db;
+      color: white;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      text-decoration: none;
+      transition: background 0.3s;
     }
-    .stat-value {
-      font-weight: bold;
-      color: #2b4b80;
+    .btn:hover {
+      background: #2980b9;
+    }
+    footer {
+      background: #2c3e50;
+      color: white;
+      padding: 1.5rem 0;
+      margin-top: 3rem;
+      text-align: center;
     }
     .login-form {
       max-width: 400px;
-      margin: 3rem auto;
-      background-color: white;
+      margin: 2rem auto;
+      background: white;
       padding: 2rem;
       border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 15px rgba(0,0,0,0.1);
     }
     .form-group {
       margin-bottom: 1.5rem;
     }
-    label {
+    .form-group label {
       display: block;
       margin-bottom: 0.5rem;
-      color: #555;
+      font-weight: 500;
     }
-    input {
+    .form-group input {
       width: 100%;
-      padding: 0.8rem;
+      padding: 0.75rem;
       border: 1px solid #ddd;
       border-radius: 4px;
       font-size: 1rem;
     }
-    button {
-      background-color: #2b4b80;
-      color: white;
-      border: none;
-      padding: 0.8rem 1.5rem;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 1rem;
+    .btn-block {
+      display: block;
       width: 100%;
-    }
-    button:hover {
-      background-color: #1a3c6e;
-    }
-    .footer {
-      margin-top: 2rem;
       text-align: center;
-      color: #777;
-      padding: 1rem;
-      border-top: 1px solid #eee;
+      padding: 0.75rem;
+      font-size: 1rem;
+      cursor: pointer;
+      border: none;
     }
-    #loading {
-      display: none;
-      text-align: center;
-      margin-top: 1rem;
-      color: #777;
+    .alert {
+      padding: 0.75rem 1.25rem;
+      margin-bottom: 1rem;
+      border-radius: 4px;
     }
-    #error-message {
-      color: #d9534f;
-      margin-top: 1rem;
+    .alert-danger {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .hidden {
       display: none;
     }
   </style>
 </head>
 <body>
   <header>
-    <div class="container">
-      <div class="logo">TerraFusionPro</div>
+    <div class="container header-content">
+      <a href="/" class="logo">TerraFusionPro</a>
+      <nav>
+        <ul>
+          <li><a href="/">Dashboard</a></li>
+          <li><a href="/properties">Properties</a></li>
+          <li><a href="/reports">Reports</a></li>
+          <li><a href="/analytics">Analytics</a></li>
+          <li><a href="/login" id="login-link">Login</a></li>
+        </ul>
+      </nav>
     </div>
   </header>
 
-  <div class="container">
-    <div id="login-view">
-      <div class="login-form">
-        <h2>Welcome Back</h2>
-        <p>Sign in to access the TerraFusionPro platform</p>
-        
-        <form id="login-form">
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input type="email" id="email" placeholder="Enter your email" required>
-          </div>
-          
-          <div class="form-group">
-            <label for="password">Password</label>
-            <input type="password" id="password" placeholder="Enter your password" required>
-          </div>
-          
-          <button type="submit">Sign In</button>
-          
-          <div id="loading">Authenticating...</div>
-          <div id="error-message"></div>
-        </form>
-      </div>
-    </div>
-    
-    <div id="dashboard-view" style="display: none;">
-      <h1>Dashboard</h1>
-      <p>Welcome to the TerraFusionPro Real Estate Appraisal Platform</p>
-      
-      <div class="dashboard">
-        <div class="card">
-          <div class="card-title">Property Overview</div>
-          <div class="stat">
-            <div class="stat-label">Total Properties</div>
-            <div class="stat-value">247</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Residential</div>
-            <div class="stat-value">182</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Commercial</div>
-            <div class="stat-value">43</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Industrial</div>
-            <div class="stat-value">22</div>
-          </div>
-        </div>
-        
-        <div class="card">
-          <div class="card-title">Appraisal Reports</div>
-          <div class="stat">
-            <div class="stat-label">Total Reports</div>
-            <div class="stat-value">153</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Completed</div>
-            <div class="stat-value">124</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">In Progress</div>
-            <div class="stat-value">29</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Avg. Completion Time</div>
-            <div class="stat-value">5.2 days</div>
-          </div>
-        </div>
-        
-        <div class="card">
-          <div class="card-title">User Activity</div>
-          <div class="stat">
-            <div class="stat-label">Active Users</div>
-            <div class="stat-value">18</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Appraisers</div>
-            <div class="stat-value">12</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Reviewers</div>
-            <div class="stat-value">4</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Clients</div>
-            <div class="stat-value">28</div>
-          </div>
-        </div>
-        
-        <div class="card">
-          <div class="card-title">Market Analysis</div>
-          <div class="stat">
-            <div class="stat-label">Avg. Property Value</div>
-            <div class="stat-value">$425,000</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Price Change (YTD)</div>
-            <div class="stat-value">+3.8%</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Market Trend</div>
-            <div class="stat-value">Seller's Market</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Avg. Days on Market</div>
-            <div class="stat-value">35</div>
-          </div>
-        </div>
-      </div>
-      
-      <button id="logout-button" style="width: auto; margin-top: 2rem;">Sign Out</button>
-    </div>
-  </div>
-  
-  <div class="footer">
-    <p>&copy; 2025 TerraFusionPro. All rights reserved.</p>
+  <div class="container main-content" id="app">
+    <!-- Content will be loaded here based on the route -->
   </div>
 
+  <footer>
+    <div class="container">
+      <p>&copy; 2025 TerraFusionPro. All rights reserved.</p>
+    </div>
+  </footer>
+
   <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      // Check for existing auth token
-      const token = localStorage.getItem('token');
-      if (token) {
-        showDashboard();
-      }
-      
-      // Login form submission
-      document.getElementById('login-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-        
-        document.getElementById('loading').style.display = 'block';
-        document.getElementById('error-message').style.display = 'none';
-        
-        // Simulate API call (in a real app, this would call the actual API)
-        setTimeout(() => {
-          if (email === 'admin@terrafusionpro.com' && password === 'admin123') {
-            // Store token and show dashboard
-            localStorage.setItem('token', 'sample-jwt-token');
-            showDashboard();
-          } else {
-            document.getElementById('error-message').textContent = 'Invalid email or password';
-            document.getElementById('error-message').style.display = 'block';
+    // Simple client-side router
+    const app = document.getElementById('app');
+    const loginLink = document.getElementById('login-link');
+    let currentUser = null;
+    
+    // Check for existing token in localStorage
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      loginLink.textContent = 'Logout';
+      // In a real app, we would validate the token with the API
+      currentUser = { name: 'Demo User' };
+    }
+    
+    // Define routes and their corresponding content
+    const routes = {
+      '/': {
+        title: 'Dashboard',
+        render: () => {
+          if (!currentUser) {
+            // Redirect to login if not authenticated
+            navigateTo('/login');
+            return;
           }
-          document.getElementById('loading').style.display = 'none';
-        }, 1000);
+          return \`
+            <h1>Welcome to TerraFusionPro</h1>
+            <p>The next-generation real estate appraisal platform.</p>
+            
+            <div class="dashboard-grid">
+              <div class="card">
+                <div class="card-icon">📊</div>
+                <h3>Recent Properties</h3>
+                <p>You have 12 properties in the system.</p>
+                <a href="/properties" class="btn">View Properties</a>
+              </div>
+              
+              <div class="card">
+                <div class="card-icon">📝</div>
+                <h3>Recent Reports</h3>
+                <p>5 reports pending review.</p>
+                <a href="/reports" class="btn">View Reports</a>
+              </div>
+              
+              <div class="card">
+                <div class="card-icon">🏘️</div>
+                <h3>Market Analysis</h3>
+                <p>Market trends updated for Q2 2025.</p>
+                <a href="/analytics" class="btn">View Analysis</a>
+              </div>
+              
+              <div class="card">
+                <div class="card-icon">📋</div>
+                <h3>Form Templates</h3>
+                <p>15 templates available.</p>
+                <a href="/forms" class="btn">Manage Forms</a>
+              </div>
+            </div>
+          \`;
+        }
+      },
+      '/login': {
+        title: 'Login',
+        render: () => {
+          if (currentUser) {
+            navigateTo('/');
+            return;
+          }
+          return \`
+            <div class="login-form">
+              <h2>Login to TerraFusionPro</h2>
+              <div class="alert alert-danger hidden" id="login-error"></div>
+              <form id="login-form">
+                <div class="form-group">
+                  <label for="email">Email Address</label>
+                  <input type="email" id="email" name="email" required>
+                </div>
+                <div class="form-group">
+                  <label for="password">Password</label>
+                  <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-block">Login</button>
+              </form>
+            </div>
+            <script>
+              document.getElementById('login-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+                
+                try {
+                  console.log('Login attempt with:', email);
+                  
+                  // In a real app, this would call the authentication API
+                  // For demo purposes, we'll just simulate a successful login
+                  if (email === 'demo@terrafusionpro.com' && password === 'demo123') {
+                    const token = 'demo-jwt-token';
+                    localStorage.setItem('auth_token', token);
+                    window.location.href = '/';
+                  } else {
+                    const errorEl = document.getElementById('login-error');
+                    errorEl.textContent = 'Invalid email or password';
+                    errorEl.classList.remove('hidden');
+                  }
+                } catch (error) {
+                  console.error('Login error:', error);
+                  const errorEl = document.getElementById('login-error');
+                  errorEl.textContent = 'An error occurred during login';
+                  errorEl.classList.remove('hidden');
+                }
+              });
+            </script>
+          \`;
+        }
+      },
+      '/properties': {
+        title: 'Properties',
+        render: () => {
+          if (!currentUser) {
+            navigateTo('/login');
+            return;
+          }
+          return \`
+            <h1>Properties</h1>
+            <p>View and manage your property portfolio.</p>
+            
+            <div class="dashboard-grid">
+              <div class="card">
+                <h3>123 Main St</h3>
+                <p>Single Family Home</p>
+                <p>4 Beds, 3 Baths, 2,500 sqft</p>
+                <a href="/properties/1" class="btn">View Details</a>
+              </div>
+              
+              <div class="card">
+                <h3>456 Oak Ave</h3>
+                <p>Condo</p>
+                <p>2 Beds, 2 Baths, 1,200 sqft</p>
+                <a href="/properties/2" class="btn">View Details</a>
+              </div>
+              
+              <div class="card">
+                <h3>789 Pine Rd</h3>
+                <p>Commercial</p>
+                <p>Office Building, 10,000 sqft</p>
+                <a href="/properties/3" class="btn">View Details</a>
+              </div>
+            </div>
+          \`;
+        }
+      },
+      '/reports': {
+        title: 'Reports',
+        render: () => {
+          if (!currentUser) {
+            navigateTo('/login');
+            return;
+          }
+          return \`
+            <h1>Appraisal Reports</h1>
+            <p>View and manage your appraisal reports.</p>
+            
+            <div class="dashboard-grid">
+              <div class="card">
+                <h3>Report #A12345</h3>
+                <p>123 Main St</p>
+                <p>Status: Draft</p>
+                <a href="/reports/1" class="btn">Edit Report</a>
+              </div>
+              
+              <div class="card">
+                <h3>Report #A12346</h3>
+                <p>456 Oak Ave</p>
+                <p>Status: Pending Review</p>
+                <a href="/reports/2" class="btn">View Report</a>
+              </div>
+              
+              <div class="card">
+                <h3>Report #A12347</h3>
+                <p>789 Pine Rd</p>
+                <p>Status: Finalized</p>
+                <a href="/reports/3" class="btn">View Report</a>
+              </div>
+            </div>
+          \`;
+        }
+      },
+      '/analytics': {
+        title: 'Market Analytics',
+        render: () => {
+          if (!currentUser) {
+            navigateTo('/login');
+            return;
+          }
+          console.log('Navigated to Analytics');
+          return \`
+            <h1>Market Analytics</h1>
+            <p>View real estate market trends and analysis.</p>
+            
+            <div class="dashboard-grid">
+              <div class="card">
+                <h3>Price Trends</h3>
+                <p>Average price in your area: $450,000</p>
+                <p>Year-over-year change: +5.2%</p>
+              </div>
+              
+              <div class="card">
+                <h3>Market Conditions</h3>
+                <p>Current status: Seller's Market</p>
+                <p>Average days on market: 12</p>
+              </div>
+              
+              <div class="card">
+                <h3>Comparable Properties</h3>
+                <p>15 recent sales in target area</p>
+                <a href="/comparables" class="btn">View Comparables</a>
+              </div>
+            </div>
+          \`;
+        }
+      },
+      '/health': {
+        title: 'Health Check',
+        render: () => {
+          return JSON.stringify({
+            status: 'healthy',
+            service: 'web-client',
+            version: '1.0.0',
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    };
+    
+    // Handle navigation
+    function navigateTo(path) {
+      window.history.pushState({}, path, window.location.origin + path);
+      updateContent();
+    }
+    
+    // Update content based on current path
+    function updateContent() {
+      const path = window.location.pathname;
+      const route = routes[path] || {
+        title: 'Not Found',
+        render: () => '<h1>Page Not Found</h1><p>Sorry, the page you are looking for does not exist.</p>'
+      };
+      
+      document.title = \`TerraFusionPro - \${route.title}\`;
+      app.innerHTML = route.render();
+    }
+    
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      // Handle navigation clicks
+      document.addEventListener('click', (e) => {
+        if (e.target.matches('a') && e.target.href.startsWith(window.location.origin)) {
+          e.preventDefault();
+          navigateTo(new URL(e.target.href).pathname);
+        }
+        
+        // Handle logout
+        if (e.target.id === 'login-link' && e.target.textContent === 'Logout') {
+          e.preventDefault();
+          localStorage.removeItem('auth_token');
+          currentUser = null;
+          loginLink.textContent = 'Login';
+          navigateTo('/login');
+        }
       });
       
-      // Logout button
-      document.getElementById('logout-button').addEventListener('click', function() {
-        localStorage.removeItem('token');
-        showLogin();
-      });
+      // Handle back/forward navigation
+      window.addEventListener('popstate', updateContent);
       
-      function showDashboard() {
-        document.getElementById('login-view').style.display = 'none';
-        document.getElementById('dashboard-view').style.display = 'block';
-      }
-      
-      function showLogin() {
-        document.getElementById('login-view').style.display = 'block';
-        document.getElementById('dashboard-view').style.display = 'none';
-        document.getElementById('email').value = '';
-        document.getElementById('password').value = '';
-      }
+      // Initial content update
+      updateContent();
     });
   </script>
 </body>
 </html>`;
 
-// Write the index.html file
-fs.writeFileSync(path.join(publicDir, 'index.html'), indexHtml);
-
-// Set up port
-const PORT = process.env.WEB_CLIENT_PORT || 5000;
-
 // Create HTTP server
 const server = http.createServer((req, res) => {
-  // Basic routing based on URL path
-  const url = req.url;
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const path = url.pathname;
   
-  // Health check endpoint
-  if (url === '/health') {
+  console.log(`${req.method} ${path}`);
+  
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  
+  // Handle health check (used for liveness probe)
+  if (path === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'healthy',
@@ -347,16 +502,38 @@ const server = http.createServer((req, res) => {
     return;
   }
   
-  // Serve the main HTML file for all other routes
-  try {
-    const htmlContent = fs.readFileSync(path.join(publicDir, 'index.html'));
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(htmlContent);
-  } catch (error) {
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Internal Server Error');
-    console.error('Error serving HTML file:', error);
+  // Handle static files
+  if (path.startsWith('/static/')) {
+    const filePath = path.replace('/static/', '');
+    const fullPath = `${__dirname}/static/${filePath}`;
+    
+    try {
+      if (fs.existsSync(fullPath)) {
+        const fileContent = fs.readFileSync(fullPath);
+        let contentType = 'text/plain';
+        
+        if (filePath.endsWith('.css')) contentType = 'text/css';
+        else if (filePath.endsWith('.js')) contentType = 'text/javascript';
+        else if (filePath.endsWith('.html')) contentType = 'text/html';
+        else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) contentType = 'image/jpeg';
+        else if (filePath.endsWith('.png')) contentType = 'image/png';
+        
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(fileContent);
+        return;
+      }
+    } catch (err) {
+      console.error(`Error reading static file: ${fullPath}`, err);
+    }
+    
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('File not found');
+    return;
   }
+  
+  // Default: serve the HTML template for all other routes (client-side routing)
+  res.writeHead(200, { 'Content-Type': 'text/html' });
+  res.end(htmlTemplate);
 });
 
 // Start the server

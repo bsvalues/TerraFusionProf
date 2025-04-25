@@ -5,704 +5,612 @@
  * and role-based access control.
  */
 
-import express from 'express';
+import http from 'http';
+import { URL } from 'url';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import cors from 'cors';
-import helmet from 'helmet';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import { db } from '../../packages/shared/storage.js';
 import { users } from '../../packages/shared/schema/index.js';
-import { eq, and, desc, sql, like } from 'drizzle-orm';
+import storageModule from '../../packages/shared/storage.js';
 
-// Get the current directory path
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Destructure the storage module for easier access
+const { db, create, find, findById, update, remove } = storageModule;
 
-// Initialize Express app
-const app = express();
-const PORT = process.env.USER_SERVICE_PORT || 5000;
-
-// JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'terrafusionpro-secret-key';
+// Service configuration
+const PORT = process.env.SERVICE_PORT || 5000;
+const SERVICE_NAME = 'user-service';
+const JWT_SECRET = process.env.JWT_SECRET || 'terrafusionpro-default-secret';
 const JWT_EXPIRES_IN = '24h';
 
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Request logging middleware
-const logRequest = (req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
-  });
-  next();
-};
-
-// Authentication middleware for protected routes
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+// Create HTTP server
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const path = url.pathname;
   
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication token required' });
+  console.log(`${req.method} ${path}`);
+  
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id, X-User-Role, X-User-Email');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
   }
   
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
+  // Parse user information from headers (set by API Gateway)
+  const authUserId = req.headers['x-user-id'];
+  const authUserRole = req.headers['x-user-role'];
+  const authUserEmail = req.headers['x-user-email'];
+  
+  // Handle health check (used for liveness probe)
+  if (path === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'healthy',
+      service: SERVICE_NAME,
+      timestamp: new Date().toISOString()
+    }));
+    return;
+  }
+  
+  try {
+    // Get request body for POST and PUT requests
+    let body = '';
+    if (req.method === 'POST' || req.method === 'PUT') {
+      await new Promise((resolve) => {
+        req.on('data', chunk => {
+          body += chunk.toString();
+        });
+        req.on('end', resolve);
+      });
     }
     
-    req.user = user;
-    next();
+    // Parse JSON body if content-type is application/json
+    let data = {};
+    if (body && req.headers['content-type'] === 'application/json') {
+      try {
+        data = JSON.parse(body);
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+        return;
+      }
+    }
+    
+    // Authentication endpoints
+    if (path.startsWith('/auth')) {
+      // User registration
+      if (req.method === 'POST' && path === '/auth/register') {
+        try {
+          // Validate required fields
+          const requiredFields = ['email', 'password', 'firstName', 'lastName'];
+          for (const field of requiredFields) {
+            if (!data[field]) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `Missing required field: ${field}` }));
+              return;
+            }
+          }
+          
+          // Check if user with this email already exists
+          const existingUser = await find(users, { email: data.email });
+          if (existingUser.length > 0) {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'User with this email already exists' }));
+            return;
+          }
+          
+          // Hash password
+          const hashedPassword = await bcrypt.hash(data.password, 10);
+          
+          // Set user data
+          const userData = {
+            email: data.email,
+            password: hashedPassword,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: data.role || 'appraiser', // Default role is appraiser
+            company: data.company || null,
+            phoneNumber: data.phoneNumber || null,
+            licenseNumber: data.licenseNumber || null,
+            licenseState: data.licenseState || null,
+            profileImageUrl: data.profileImageUrl || null,
+            isActive: data.isActive !== undefined ? data.isActive : true,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          
+          // Create user
+          const newUser = await create(users, userData);
+          
+          // Remove password from response
+          delete newUser.password;
+          
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(newUser));
+        } catch (error) {
+          console.error('Error registering user:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error registering user' }));
+        }
+        return;
+      }
+      
+      // User login
+      if (req.method === 'POST' && path === '/auth/login') {
+        try {
+          // Validate required fields
+          if (!data.email || !data.password) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Email and password are required' }));
+            return;
+          }
+          
+          // Find user by email
+          const foundUsers = await find(users, { email: data.email });
+          if (foundUsers.length === 0) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid email or password' }));
+            return;
+          }
+          
+          const user = foundUsers[0];
+          
+          // Check if user is active
+          if (!user.isActive) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Account is inactive' }));
+            return;
+          }
+          
+          // Verify password
+          const isPasswordValid = await bcrypt.compare(data.password, user.password);
+          if (!isPasswordValid) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid email or password' }));
+            return;
+          }
+          
+          // Generate JWT token
+          const token = jwt.sign(
+            { 
+              id: user.id, 
+              email: user.email, 
+              role: user.role,
+              firstName: user.firstName,
+              lastName: user.lastName
+            },
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN }
+          );
+          
+          // Remove password from response
+          delete user.password;
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            user,
+            token,
+            expiresIn: JWT_EXPIRES_IN
+          }));
+        } catch (error) {
+          console.error('Error during login:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error during login' }));
+        }
+        return;
+      }
+      
+      // Verify token
+      if (req.method === 'GET' && path === '/auth/verify') {
+        try {
+          // Get token from authorization header
+          const authHeader = req.headers['authorization'];
+          const token = authHeader && authHeader.split(' ')[1];
+          
+          if (!token) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'No token provided' }));
+            return;
+          }
+          
+          // Verify token
+          const decoded = jwt.verify(token, JWT_SECRET);
+          
+          // Find user by ID
+          const user = await findById(users, decoded.id);
+          
+          if (!user) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'User not found' }));
+            return;
+          }
+          
+          // Check if user is active
+          if (!user.isActive) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Account is inactive' }));
+            return;
+          }
+          
+          // Remove password from response
+          delete user.password;
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            user,
+            valid: true
+          }));
+        } catch (error) {
+          if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+              error: error.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid token',
+              valid: false
+            }));
+            return;
+          }
+          
+          console.error('Error verifying token:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error verifying token' }));
+        }
+        return;
+      }
+    }
+    
+    // User endpoints
+    if (path.startsWith('/users')) {
+      // Get all users
+      if (req.method === 'GET' && path === '/users') {
+        // Check if user is authenticated and has appropriate role
+        if (!authUserId || (authUserRole !== 'admin' && authUserRole !== 'reviewer')) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Parse query parameters
+          const limit = parseInt(url.searchParams.get('limit')) || 100;
+          const offset = parseInt(url.searchParams.get('offset')) || 0;
+          const sortBy = url.searchParams.get('sortBy') || 'id';
+          const sortOrder = url.searchParams.get('sortOrder') || 'asc';
+          
+          // Filter users based on query parameters
+          const filters = {};
+          if (url.searchParams.has('role')) {
+            filters.role = url.searchParams.get('role');
+          }
+          if (url.searchParams.has('isActive')) {
+            filters.isActive = url.searchParams.get('isActive') === 'true';
+          }
+          
+          // Find users with filters, limit, offset, and ordering
+          const userList = await find(users, filters, {
+            limit,
+            offset,
+            orderBy: {
+              [sortBy]: sortOrder
+            }
+          });
+          
+          // Remove passwords from response
+          const sanitizedUsers = userList.map(user => {
+            const { password, ...sanitizedUser } = user;
+            return sanitizedUser;
+          });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            users: sanitizedUsers,
+            total: sanitizedUsers.length, // In a real app, this would be the total count without limit
+            limit,
+            offset
+          }));
+        } catch (error) {
+          console.error('Error fetching users:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error fetching users' }));
+        }
+        return;
+      }
+      
+      // Get user by ID
+      if (req.method === 'GET' && path.match(/^\/users\/\d+$/)) {
+        const userId = parseInt(path.split('/')[2]);
+        
+        // Check if user is authorized to view this user
+        // Allow admin, reviewer, or the user themselves
+        if (!authUserId || 
+            (authUserRole !== 'admin' && 
+             authUserRole !== 'reviewer' && 
+             parseInt(authUserId) !== userId)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          const user = await findById(users, userId);
+          
+          if (!user) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'User not found' }));
+            return;
+          }
+          
+          // Remove password from response
+          delete user.password;
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(user));
+        } catch (error) {
+          console.error('Error fetching user:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error fetching user' }));
+        }
+        return;
+      }
+      
+      // Create user (admin only)
+      if (req.method === 'POST' && path === '/users') {
+        // Check if user is authenticated and has admin role
+        if (!authUserId || authUserRole !== 'admin') {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Validate required fields
+          const requiredFields = ['email', 'password', 'firstName', 'lastName', 'role'];
+          for (const field of requiredFields) {
+            if (!data[field]) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `Missing required field: ${field}` }));
+              return;
+            }
+          }
+          
+          // Check if user with this email already exists
+          const existingUser = await find(users, { email: data.email });
+          if (existingUser.length > 0) {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'User with this email already exists' }));
+            return;
+          }
+          
+          // Hash password
+          const hashedPassword = await bcrypt.hash(data.password, 10);
+          
+          // Set user data
+          const userData = {
+            email: data.email,
+            password: hashedPassword,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: data.role,
+            company: data.company || null,
+            phoneNumber: data.phoneNumber || null,
+            licenseNumber: data.licenseNumber || null,
+            licenseState: data.licenseState || null,
+            profileImageUrl: data.profileImageUrl || null,
+            isActive: data.isActive !== undefined ? data.isActive : true,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          
+          // Create user
+          const newUser = await create(users, userData);
+          
+          // Remove password from response
+          delete newUser.password;
+          
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(newUser));
+        } catch (error) {
+          console.error('Error creating user:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error creating user' }));
+        }
+        return;
+      }
+      
+      // Update user
+      if (req.method === 'PUT' && path.match(/^\/users\/\d+$/)) {
+        const userId = parseInt(path.split('/')[2]);
+        
+        // Check if user is authorized to update this user
+        // Allow admin or the user themselves
+        if (!authUserId || 
+            (authUserRole !== 'admin' && 
+             parseInt(authUserId) !== userId)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Check if user exists
+          const existingUser = await findById(users, userId);
+          
+          if (!existingUser) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'User not found' }));
+            return;
+          }
+          
+          // Prepare user data for update
+          const userData = {
+            ...data,
+            updatedAt: new Date()
+          };
+          
+          // Hash password if provided
+          if (data.password) {
+            userData.password = await bcrypt.hash(data.password, 10);
+          } else {
+            delete userData.password; // Don't update password if not provided
+          }
+          
+          // Only admin can change role or active status
+          if (authUserRole !== 'admin') {
+            delete userData.role;
+            delete userData.isActive;
+          }
+          
+          // Update user
+          const updatedUser = await update(users, userId, userData);
+          
+          // Remove password from response
+          delete updatedUser.password;
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(updatedUser));
+        } catch (error) {
+          console.error('Error updating user:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error updating user' }));
+        }
+        return;
+      }
+      
+      // Delete user (admin only)
+      if (req.method === 'DELETE' && path.match(/^\/users\/\d+$/)) {
+        const userId = parseInt(path.split('/')[2]);
+        
+        // Check if user is authenticated and has admin role
+        if (!authUserId || authUserRole !== 'admin') {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Check if user exists
+          const existingUser = await findById(users, userId);
+          
+          if (!existingUser) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'User not found' }));
+            return;
+          }
+          
+          // Instead of physical deletion, deactivate the user
+          await update(users, userId, { isActive: false });
+          
+          res.writeHead(204);
+          res.end();
+        } catch (error) {
+          console.error('Error deleting user:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error deleting user' }));
+        }
+        return;
+      }
+      
+      // Change password
+      if (req.method === 'POST' && path.match(/^\/users\/\d+\/change-password$/)) {
+        const userId = parseInt(path.split('/')[2]);
+        
+        // Check if user is authorized to change this user's password
+        // Allow admin or the user themselves
+        if (!authUserId || 
+            (authUserRole !== 'admin' && 
+             parseInt(authUserId) !== userId)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Validate request
+          if (!data.newPassword) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'New password is required' }));
+            return;
+          }
+          
+          // For regular users, current password is required
+          if (authUserRole !== 'admin' && !data.currentPassword) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Current password is required' }));
+            return;
+          }
+          
+          // Check if user exists
+          const existingUser = await findById(users, userId);
+          
+          if (!existingUser) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'User not found' }));
+            return;
+          }
+          
+          // Verify current password for regular users
+          if (authUserRole !== 'admin') {
+            const isPasswordValid = await bcrypt.compare(data.currentPassword, existingUser.password);
+            if (!isPasswordValid) {
+              res.writeHead(401, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Current password is incorrect' }));
+              return;
+            }
+          }
+          
+          // Hash new password
+          const hashedPassword = await bcrypt.hash(data.newPassword, 10);
+          
+          // Update password
+          await update(users, userId, {
+            password: hashedPassword,
+            updatedAt: new Date()
+          });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, message: 'Password updated successfully' }));
+        } catch (error) {
+          console.error('Error changing password:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error changing password' }));
+        }
+        return;
+      }
+    }
+    
+    // If no endpoint matched, return 404
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Endpoint not found' }));
+  } catch (error) {
+    console.error('Unhandled error:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+});
+
+// Initialize database and start server
+storageModule.initializeDatabase()
+  .then(() => {
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`User service running on port ${PORT}`);
+    });
+  })
+  .catch(error => {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
   });
-};
 
-// Role-based access control middleware
-const authorizeRoles = (roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ 
-        error: 'Insufficient permissions',
-        requiredRoles: roles,
-        userRole: req.user.role
-      });
-    }
-    
-    next();
-  };
-};
-
-// Apply global middleware
-app.use(logRequest);
-
-// Health check endpoint (doesn't require authentication)
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'user-service',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down user service...');
+  await storageModule.closeDatabase();
+  server.close(() => {
+    console.log('User service shut down complete');
+    process.exit(0);
   });
 });
 
-// User Login
-app.post('/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    // Validate required fields
-    if (!email || !password) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['email', 'password']
-      });
-    }
-    
-    // Find user by email
-    const userResult = await db.select()
-      .from(users)
-      .where(eq(users.email, email.toLowerCase()))
-      .limit(1);
-    
-    if (userResult.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    
-    const user = userResult[0];
-    
-    // Check if user is active
-    if (!user.active) {
-      return res.status(403).json({ error: 'Account is disabled' });
-    }
-    
-    // Verify password
-    const passwordValid = await bcrypt.compare(password, user.password);
-    
-    if (!passwordValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    
-    // Update last login timestamp
-    await db.update(users)
-      .set({ lastLogin: new Date() })
-      .where(eq(users.id, user.id));
-    
-    // Generate JWT token
-    const token = jwt.sign({ 
-      id: user.id,
-      email: user.email,
-      role: user.role 
-    }, JWT_SECRET, { 
-      expiresIn: JWT_EXPIRES_IN 
-    });
-    
-    // Don't return password in response
-    const { password: _, ...userWithoutPassword } = user;
-    
-    res.json({
-      user: userWithoutPassword,
-      token,
-      expiresIn: JWT_EXPIRES_IN
-    });
-  } catch (error) {
-    console.error('Error during login:', error);
-    res.status(500).json({ error: 'Failed to authenticate user' });
-  }
-});
-
-// Register new user (admin-only operation)
-app.post('/users', authenticateToken, authorizeRoles(['admin']), async (req, res) => {
-  try {
-    const { 
-      email, 
-      password, 
-      firstName, 
-      lastName, 
-      role = 'appraiser',
-      company,
-      phone,
-      avatar,
-      active = true
-    } = req.body;
-    
-    // Validate required fields
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['email', 'password', 'firstName', 'lastName']
-      });
-    }
-    
-    // Check if user with email already exists
-    const existingUser = await db.select({ id: users.id })
-      .from(users)
-      .where(eq(users.email, email.toLowerCase()))
-      .limit(1);
-    
-    if (existingUser.length > 0) {
-      return res.status(409).json({ error: 'User with this email already exists' });
-    }
-    
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // Create new user
-    const newUser = await db.insert(users)
-      .values({
-        email: email.toLowerCase(),
-        password: hashedPassword,
-        firstName,
-        lastName,
-        role,
-        company,
-        phone,
-        avatar,
-        active,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-      .returning();
-    
-    // Don't return password in response
-    const { password: _, ...userWithoutPassword } = newUser[0];
-    
-    res.status(201).json(userWithoutPassword);
-  } catch (error) {
-    console.error('Error creating user:', error);
-    res.status(500).json({ error: 'Failed to create user' });
-  }
-});
-
-// Self-registration (limited role, needs admin approval)
-app.post('/auth/register', async (req, res) => {
-  try {
-    const { 
-      email, 
-      password, 
-      firstName, 
-      lastName, 
-      company,
-      phone
-    } = req.body;
-    
-    // Validate required fields
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['email', 'password', 'firstName', 'lastName']
-      });
-    }
-    
-    // Check if user with email already exists
-    const existingUser = await db.select({ id: users.id })
-      .from(users)
-      .where(eq(users.email, email.toLowerCase()))
-      .limit(1);
-    
-    if (existingUser.length > 0) {
-      return res.status(409).json({ error: 'User with this email already exists' });
-    }
-    
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // Create new user (inactive by default, needs admin approval)
-    const newUser = await db.insert(users)
-      .values({
-        email: email.toLowerCase(),
-        password: hashedPassword,
-        firstName,
-        lastName,
-        role: 'client', // Default role for self-registered users
-        company,
-        phone,
-        active: false, // Inactive until approved
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-      .returning();
-    
-    // Don't return password in response
-    const { password: _, ...userWithoutPassword } = newUser[0];
-    
-    res.status(201).json({
-      ...userWithoutPassword,
-      message: 'Registration successful. Your account is pending approval.'
-    });
-    
-    // In a real implementation, this would notify admins of a pending approval
-  } catch (error) {
-    console.error('Error registering user:', error);
-    res.status(500).json({ error: 'Failed to register user' });
-  }
-});
-
-// Get all users (admin and manager roles)
-app.get('/users', authenticateToken, authorizeRoles(['admin', 'reviewer']), async (req, res) => {
-  try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      sort = 'lastName', 
-      order = 'asc',
-      role,
-      active,
-      search
-    } = req.query;
-    
-    const offset = (Number(page) - 1) * Number(limit);
-    
-    // Build query conditions
-    let conditions = [];
-    
-    if (role) {
-      conditions.push(eq(users.role, role));
-    }
-    
-    if (active !== undefined) {
-      conditions.push(eq(users.active, active === 'true'));
-    }
-    
-    if (search) {
-      conditions.push(
-        sql`(${users.firstName} ILIKE ${`%${search}%`} OR 
-             ${users.lastName} ILIKE ${`%${search}%`} OR
-             ${users.email} ILIKE ${`%${search}%`} OR
-             ${users.company} ILIKE ${`%${search}%`})`
-      );
-    }
-    
-    // Create query
-    let query = db.select({
-      id: users.id,
-      email: users.email,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      role: users.role,
-      company: users.company,
-      phone: users.phone,
-      avatar: users.avatar,
-      active: users.active,
-      lastLogin: users.lastLogin,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt
-    })
-    .from(users);
-    
-    // Add conditions if any
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
-    
-    // Add sorting
-    if (order.toLowerCase() === 'desc') {
-      query = query.orderBy(desc(users[sort]));
-    } else {
-      query = query.orderBy(users[sort]);
-    }
-    
-    // Add pagination
-    query = query.limit(Number(limit)).offset(offset);
-    
-    // Execute query
-    const results = await query;
-    
-    // Count total records for pagination metadata
-    const countQuery = db.select({ count: sql`count(*)` }).from(users);
-    
-    if (conditions.length > 0) {
-      countQuery.where(and(...conditions));
-    }
-    
-    const countResult = await countQuery;
-    const total = Number(countResult[0].count);
-    
-    res.json({
-      data: results,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        pages: Math.ceil(total / Number(limit))
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-
-// Get user by ID
-app.get('/users/:id', authenticateToken, async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
-    
-    // Check permissions - users can view their own profile or admins can view any
-    if (req.user.id !== userId && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Unauthorized to view this user profile' });
-    }
-    
-    // Get user details
-    const userResult = await db.select({
-      id: users.id,
-      email: users.email,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      role: users.role,
-      company: users.company,
-      phone: users.phone,
-      avatar: users.avatar,
-      active: users.active,
-      lastLogin: users.lastLogin,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt
-    })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-      
-    if (userResult.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    res.json(userResult[0]);
-  } catch (error) {
-    console.error('Error fetching user:', error);
-    res.status(500).json({ error: 'Failed to fetch user details' });
-  }
-});
-
-// Update user profile
-app.put('/users/:id', authenticateToken, async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
-    
-    // Check for permission - users can only update their own profile unless admin
-    const isSelfUpdate = req.user.id === userId;
-    const isAdmin = req.user.role === 'admin';
-    
-    if (!isSelfUpdate && !isAdmin) {
-      return res.status(403).json({ error: 'Unauthorized to update this user profile' });
-    }
-    
-    const { 
-      email, 
-      password, 
-      firstName, 
-      lastName, 
-      role, 
-      company,
-      phone,
-      avatar,
-      active
-    } = req.body;
-    
-    // Check if user exists
-    const existingUser = await db.select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-      
-    if (existingUser.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Create update object (only include fields that are provided)
-    const updates = {};
-    
-    if (email) {
-      // Only admins can change email
-      if (!isAdmin && email !== existingUser[0].email) {
-        return res.status(403).json({ error: 'Only administrators can change email addresses' });
-      }
-      updates.email = email.toLowerCase();
-    }
-    
-    if (password) {
-      updates.password = await bcrypt.hash(password, 10);
-    }
-    
-    if (firstName) updates.firstName = firstName;
-    if (lastName) updates.lastName = lastName;
-    
-    if (role) {
-      // Only admins can change roles
-      if (!isAdmin) {
-        return res.status(403).json({ error: 'Only administrators can change user roles' });
-      }
-      updates.role = role;
-    }
-    
-    if (company) updates.company = company;
-    if (phone) updates.phone = phone;
-    if (avatar) updates.avatar = avatar;
-    
-    if (active !== undefined) {
-      // Only admins can change active status
-      if (!isAdmin) {
-        return res.status(403).json({ error: 'Only administrators can change account status' });
-      }
-      updates.active = active;
-    }
-    
-    // Update timestamp
-    updates.updatedAt = new Date();
-    
-    // Update user
-    const updatedUser = await db.update(users)
-      .set(updates)
-      .where(eq(users.id, userId))
-      .returning();
-    
-    // Don't return password in response
-    const { password: _, ...userWithoutPassword } = updatedUser[0];
-    
-    res.json(userWithoutPassword);
-  } catch (error) {
-    console.error('Error updating user:', error);
-    res.status(500).json({ error: 'Failed to update user' });
-  }
-});
-
-// Delete user (admin only)
-app.delete('/users/:id', authenticateToken, authorizeRoles(['admin']), async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
-    
-    // Prevent deleting self
-    if (req.user.id === userId) {
-      return res.status(400).json({ error: 'Cannot delete your own account' });
-    }
-    
-    // Check if user exists
-    const existingUser = await db.select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-      
-    if (existingUser.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Delete user
-    await db.delete(users)
-      .where(eq(users.id, userId));
-    
-    res.json({ message: 'User deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting user:', error);
-    res.status(500).json({ error: 'Failed to delete user' });
-  }
-});
-
-// Verify authentication token
-app.get('/auth/verify', authenticateToken, async (req, res) => {
-  try {
-    // Get current user details
-    const userResult = await db.select({
-      id: users.id,
-      email: users.email,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      role: users.role,
-      company: users.company,
-      phone: users.phone,
-      avatar: users.avatar,
-      active: users.active,
-      lastLogin: users.lastLogin
-    })
-    .from(users)
-    .where(eq(users.id, req.user.id))
-    .limit(1);
-    
-    if (userResult.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Check if user is still active
-    if (!userResult[0].active) {
-      return res.status(403).json({ error: 'Account is disabled' });
-    }
-    
-    res.json({
-      user: userResult[0],
-      token: req.headers.authorization.split(' ')[1]
-    });
-  } catch (error) {
-    console.error('Error verifying token:', error);
-    res.status(500).json({ error: 'Failed to verify authentication' });
-  }
-});
-
-// Change password
-app.post('/auth/change-password', authenticateToken, async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['currentPassword', 'newPassword']
-      });
-    }
-    
-    // Get user with password
-    const userResult = await db.select()
-      .from(users)
-      .where(eq(users.id, req.user.id))
-      .limit(1);
-    
-    if (userResult.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const user = userResult[0];
-    
-    // Verify current password
-    const passwordValid = await bcrypt.compare(currentPassword, user.password);
-    
-    if (!passwordValid) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
-    }
-    
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    
-    // Update password
-    await db.update(users)
-      .set({ 
-        password: hashedPassword,
-        updatedAt: new Date()
-      })
-      .where(eq(users.id, req.user.id));
-    
-    res.json({ message: 'Password changed successfully' });
-  } catch (error) {
-    console.error('Error changing password:', error);
-    res.status(500).json({ error: 'Failed to change password' });
-  }
-});
-
-// Get user statistics
-app.get('/users/stats', authenticateToken, authorizeRoles(['admin']), async (req, res) => {
-  try {
-    // Count users by role
-    const usersByRole = await db
-      .select({
-        role: users.role,
-        count: sql`count(*)`.as('count')
-      })
-      .from(users)
-      .groupBy(users.role);
-      
-    // Count active vs inactive users
-    const usersByStatus = await db
-      .select({
-        active: users.active,
-        count: sql`count(*)`.as('count')
-      })
-      .from(users)
-      .groupBy(users.active);
-      
-    // Get total user count
-    const totalUsersResult = await db
-      .select({ count: sql`count(*)`.as('count') })
-      .from(users);
-      
-    // Get recently active users count (last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    const recentlyActiveCount = await db
-      .select({ count: sql`count(*)`.as('count') })
-      .from(users)
-      .where(sql`${users.lastLogin} >= ${thirtyDaysAgo}`);
-      
-    // Get new users this month
-    const firstDayOfMonth = new Date();
-    firstDayOfMonth.setDate(1);
-    firstDayOfMonth.setHours(0, 0, 0, 0);
-    
-    const newUsersThisMonth = await db
-      .select({ count: sql`count(*)`.as('count') })
-      .from(users)
-      .where(sql`${users.createdAt} >= ${firstDayOfMonth}`);
-    
-    res.json({
-      totalUsers: Number(totalUsersResult[0].count),
-      recentlyActive: Number(recentlyActiveCount[0].count),
-      newThisMonth: Number(newUsersThisMonth[0].count),
-      byRole: usersByRole.map(item => ({ ...item, count: Number(item.count) })),
-      byStatus: usersByStatus.map(item => ({
-        status: item.active ? 'active' : 'inactive',
-        count: Number(item.count)
-      }))
-    });
-  } catch (error) {
-    console.error('Error fetching user statistics:', error);
-    res.status(500).json({ error: 'Failed to fetch user statistics' });
-  }
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('User Service Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-// Start the server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`User service running on port ${PORT}`);
-});
-
-export default app;
+export default server;

@@ -5,343 +5,505 @@
  * and market trend calculations.
  */
 
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import { db } from '../../packages/shared/storage.js';
-import { 
-  properties, 
-  comparables,
-  appraisalReports
-} from '../../packages/shared/schema/index.js';
-import { eq, and, desc, sql, gte, lte, like, between } from 'drizzle-orm';
+import http from 'http';
+import { URL } from 'url';
+import { comparables, properties, marketData } from '../../packages/shared/schema/index.js';
+import storageModule from '../../packages/shared/storage.js';
+import { runAgent } from '../../packages/agents/index.js';
 
-// Get the current directory path
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Destructure the storage module for easier access
+const { db, create, find, findById, update, remove } = storageModule;
 
-// Initialize Express app
-const app = express();
-const PORT = process.env.ANALYSIS_SERVICE_PORT || 5003;
+// Service configuration
+const PORT = process.env.SERVICE_PORT || 5003;
+const SERVICE_NAME = 'analysis-service';
 
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Request logging middleware
-const logRequest = (req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
-  });
-  next();
-};
-
-// Authentication middleware - we assume the API Gateway already validated the token
-// and set the user ID and role in the request headers
-const authenticateRequest = (req, res, next) => {
-  const userId = req.headers['x-user-id'];
-  const userRole = req.headers['x-user-role'];
+// Create HTTP server
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const path = url.pathname;
   
-  if (!userId || !userRole) {
-    return res.status(401).json({ error: 'Authentication required' });
+  console.log(`${req.method} ${path}`);
+  
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id, X-User-Role, X-User-Email');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
   }
   
-  req.user = {
-    id: Number(userId),
-    role: userRole
-  };
+  // Parse user information from headers (set by API Gateway)
+  const userId = req.headers['x-user-id'];
+  const userRole = req.headers['x-user-role'];
+  const userEmail = req.headers['x-user-email'];
   
-  next();
-};
-
-// Apply global middleware
-app.use(logRequest);
-app.use(authenticateRequest);
-
-// Health check endpoint (doesn't require authentication)
-app.get('/health', (req, res, next) => {
-  res.json({
-    status: 'healthy',
-    service: 'analysis-service',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Find comparable properties
-app.post('/comparables/find', async (req, res) => {
+  // Handle health check (used for liveness probe)
+  if (path === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'healthy',
+      service: SERVICE_NAME,
+      timestamp: new Date().toISOString()
+    }));
+    return;
+  }
+  
   try {
-    const { 
-      propertyId, 
-      reportId, 
-      radius = 5,
-      maxResults = 10, 
-      minSimilarity = 0.5,
-      filters = {}
-    } = req.body;
-    
-    // Validate required fields
-    if (!propertyId) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['propertyId']
+    // Get request body for POST and PUT requests
+    let body = '';
+    if (req.method === 'POST' || req.method === 'PUT') {
+      await new Promise((resolve) => {
+        req.on('data', chunk => {
+          body += chunk.toString();
+        });
+        req.on('end', resolve);
       });
     }
     
-    // Get subject property details
-    const subjectProperty = await db.select()
-      .from(properties)
-      .where(eq(properties.id, Number(propertyId)))
-      .limit(1);
-      
-    if (subjectProperty.length === 0) {
-      return res.status(404).json({ error: 'Subject property not found' });
-    }
-    
-    // Build location-based query
-    // In a real implementation, this would use geospatial queries
-    // For this example, we'll simplify and just filter by city and state
-    const baseQuery = db.select()
-      .from(properties)
-      .where(
-        and(
-          eq(properties.city, subjectProperty[0].city),
-          eq(properties.state, subjectProperty[0].state),
-          sql`${properties.id} != ${propertyId}`
-        )
-      );
-    
-    // Apply additional filters
-    if (filters.propertyType) {
-      baseQuery.where(eq(properties.propertyType, filters.propertyType));
-    }
-    
-    if (filters.minBedrooms) {
-      baseQuery.where(gte(properties.bedrooms, filters.minBedrooms));
-    }
-    
-    if (filters.maxBedrooms) {
-      baseQuery.where(lte(properties.bedrooms, filters.maxBedrooms));
-    }
-    
-    if (filters.minBathrooms) {
-      baseQuery.where(gte(properties.bathrooms, filters.minBathrooms));
-    }
-    
-    if (filters.maxBathrooms) {
-      baseQuery.where(lte(properties.bathrooms, filters.maxBathrooms));
-    }
-    
-    if (filters.minYearBuilt) {
-      baseQuery.where(gte(properties.yearBuilt, filters.minYearBuilt));
-    }
-    
-    if (filters.maxYearBuilt) {
-      baseQuery.where(lte(properties.yearBuilt, filters.maxYearBuilt));
-    }
-    
-    // Execute query
-    const potentialComps = await baseQuery;
-    
-    // Calculate similarity scores
-    const subject = subjectProperty[0];
-    const compsWithScores = potentialComps.map(comp => {
-      const scores = {
-        location: calculateLocationScore(subject, comp),
-        size: calculateSizeScore(subject, comp),
-        age: calculateAgeScore(subject, comp),
-        features: calculateFeatureScore(subject, comp)
-      };
-      
-      // Overall similarity is a weighted average
-      const weightedScore = (
-        scores.location * 0.35 + 
-        scores.size * 0.25 + 
-        scores.age * 0.2 + 
-        scores.features * 0.2
-      );
-      
-      return {
-        ...comp,
-        similarity: {
-          overall: weightedScore,
-          scores
-        },
-        adjustments: generateAdjustments(subject, comp)
-      };
-    });
-    
-    // Filter by minimum similarity
-    const filteredComps = compsWithScores
-      .filter(comp => comp.similarity.overall >= minSimilarity)
-      .sort((a, b) => b.similarity.overall - a.similarity.overall)
-      .slice(0, maxResults);
-    
-    // If a report ID was provided, save these as comparables
-    if (reportId) {
-      const existingReport = await db.select({ id: appraisalReports.id })
-        .from(appraisalReports)
-        .where(eq(appraisalReports.id, Number(reportId)))
-        .limit(1);
-      
-      if (existingReport.length > 0) {
-        // Save comparables to database
-        for (const comp of filteredComps) {
-          await db.insert(comparables)
-            .values({
-              reportId: Number(reportId),
-              propertyId: comp.id,
-              address: comp.address,
-              city: comp.city,
-              state: comp.state,
-              zipCode: comp.zipCode,
-              propertyType: comp.propertyType,
-              yearBuilt: comp.yearBuilt,
-              lotSize: comp.lotSize,
-              buildingSize: comp.buildingSize,
-              bedrooms: comp.bedrooms,
-              bathrooms: comp.bathrooms,
-              adjustments: comp.adjustments,
-              similarityScore: comp.similarity.overall.toFixed(2),
-              createdAt: new Date()
-            })
-            .onConflictDoNothing();
-        }
+    // Parse JSON body if content-type is application/json
+    let data = {};
+    if (body && req.headers['content-type'] === 'application/json') {
+      try {
+        data = JSON.parse(body);
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+        return;
       }
     }
     
-    res.json({
-      subjectProperty: subject,
-      comparables: filteredComps
-    });
+    // Comparable endpoints
+    if (path.startsWith('/comparables')) {
+      
+      // Get all comparables for a report
+      if (req.method === 'GET' && path.match(/^\/comparables\/report\/\d+$/)) {
+        const reportId = parseInt(path.split('/')[3]);
+        
+        try {
+          // Find comparables for the report
+          const comparableList = await find(comparables, { reportId }, {
+            orderBy: { similarityScore: 'desc' }
+          });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            comparables: comparableList
+          }));
+        } catch (error) {
+          console.error('Error fetching comparables:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error fetching comparables' }));
+        }
+        return;
+      }
+      
+      // Get comparable by ID
+      if (req.method === 'GET' && path.match(/^\/comparables\/\d+$/)) {
+        const comparableId = parseInt(path.split('/')[2]);
+        
+        try {
+          const comparable = await findById(comparables, comparableId);
+          
+          if (!comparable) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Comparable not found' }));
+            return;
+          }
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(comparable));
+        } catch (error) {
+          console.error('Error fetching comparable:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error fetching comparable' }));
+        }
+        return;
+      }
+      
+      // Add comparable to report
+      if (req.method === 'POST' && path === '/comparables') {
+        // Check if user is authenticated
+        if (!userId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Validate required fields
+          const requiredFields = [
+            'reportId', 'address', 'city', 'state', 'zipCode', 
+            'propertyType', 'salePrice', 'saleDate'
+          ];
+          for (const field of requiredFields) {
+            if (!data[field]) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `Missing required field: ${field}` }));
+              return;
+            }
+          }
+          
+          // Set comparable data
+          const comparableData = {
+            ...data,
+            addedBy: userId,
+            addedAt: new Date()
+          };
+          
+          // Create comparable
+          const newComparable = await create(comparables, comparableData);
+          
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(newComparable));
+        } catch (error) {
+          console.error('Error adding comparable:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error adding comparable' }));
+        }
+        return;
+      }
+      
+      // Update comparable
+      if (req.method === 'PUT' && path.match(/^\/comparables\/\d+$/)) {
+        const comparableId = parseInt(path.split('/')[2]);
+        
+        // Check if user is authenticated
+        if (!userId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Check if comparable exists
+          const existingComparable = await findById(comparables, comparableId);
+          
+          if (!existingComparable) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Comparable not found' }));
+            return;
+          }
+          
+          // Update comparable
+          const updatedComparable = await update(comparables, comparableId, data);
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(updatedComparable));
+        } catch (error) {
+          console.error('Error updating comparable:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error updating comparable' }));
+        }
+        return;
+      }
+      
+      // Delete comparable
+      if (req.method === 'DELETE' && path.match(/^\/comparables\/\d+$/)) {
+        const comparableId = parseInt(path.split('/')[2]);
+        
+        // Check if user is authenticated
+        if (!userId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Check if comparable exists
+          const existingComparable = await findById(comparables, comparableId);
+          
+          if (!existingComparable) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Comparable not found' }));
+            return;
+          }
+          
+          // Delete comparable
+          await remove(comparables, comparableId);
+          
+          res.writeHead(204);
+          res.end();
+        } catch (error) {
+          console.error('Error deleting comparable:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error deleting comparable' }));
+        }
+        return;
+      }
+    }
+    
+    // Market data endpoints
+    if (path.startsWith('/market')) {
+      
+      // Get market data
+      if (req.method === 'GET' && path === '/market/data') {
+        try {
+          // Parse query parameters
+          const location = url.searchParams.get('location');
+          const propertyType = url.searchParams.get('propertyType');
+          const period = url.searchParams.get('period');
+          
+          // Validate required parameters
+          if (!location) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Location parameter is required' }));
+            return;
+          }
+          
+          // Build filter
+          const filter = { location };
+          if (propertyType) {
+            filter.propertyType = propertyType;
+          }
+          if (period) {
+            filter.period = period;
+          }
+          
+          // Find market data
+          const marketDataList = await find(marketData, filter, {
+            orderBy: { updateDate: 'desc' }
+          });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ marketData: marketDataList }));
+        } catch (error) {
+          console.error('Error fetching market data:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error fetching market data' }));
+        }
+        return;
+      }
+      
+      // Generate market analysis
+      if (req.method === 'POST' && path === '/market/analyze') {
+        // Check if user is authenticated
+        if (!userId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Validate required fields
+          if (!data.location) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Location is required' }));
+            return;
+          }
+          
+          if (!data.salesData || !Array.isArray(data.salesData)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Sales data is required and must be an array' }));
+            return;
+          }
+          
+          // Run market analyzer agent
+          const analysisResults = await runAgent('market-analyzer', {
+            location: data.location,
+            salesData: data.salesData,
+            timeframe: data.timeframe || 12 // Default to 12 months
+          });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(analysisResults));
+        } catch (error) {
+          console.error('Error generating market analysis:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error generating market analysis' }));
+        }
+        return;
+      }
+    }
+    
+    // Valuation endpoints
+    if (path.startsWith('/valuation')) {
+      
+      // Find comparable properties
+      if (req.method === 'POST' && path === '/valuation/find-comps') {
+        // Check if user is authenticated
+        if (!userId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Validate required data
+          if (!data.subject) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Subject property data is required' }));
+            return;
+          }
+          
+          // Get parameters for the search
+          const propertyType = data.subject.propertyType;
+          const city = data.subject.city;
+          const state = data.subject.state;
+          const zipCode = data.subject.zipCode;
+          const reportId = data.reportId;
+          
+          // Build filter for finding potential comparables
+          const filter = {
+            propertyType
+          };
+          
+          // Add location filters with some flexibility
+          // Can use either city, state, or zipCode as a filter
+          if (zipCode) {
+            filter.zipCode = zipCode;
+          } else if (city && state) {
+            filter.city = city;
+            filter.state = state;
+          }
+          
+          // Find potential comparable properties
+          let potentialComparables;
+          
+          // If we have a report ID, we'll use existing comparables
+          if (reportId) {
+            potentialComparables = await find(comparables, { reportId });
+          } else {
+            // Get a sample of properties that match our criteria
+            potentialComparables = await find(properties, filter, {
+              limit: 50
+            });
+          }
+          
+          // Run comp selector agent
+          const selectionResults = await runAgent('comp-selector', {
+            subject: data.subject,
+            comparables: potentialComparables,
+            // Additional parameters
+            reportId: data.reportId,
+            maxResults: data.maxResults || 10
+          }, {
+            // Agent options
+            weights: data.weights
+          });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(selectionResults));
+        } catch (error) {
+          console.error('Error finding comparable properties:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error finding comparable properties' }));
+        }
+        return;
+      }
+      
+      // Calculate adjustments for a comparable property
+      if (req.method === 'POST' && path === '/valuation/calculate-adjustments') {
+        // Check if user is authenticated
+        if (!userId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Validate required data
+          if (!data.subject || !data.comparable) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Subject and comparable property data are required' }));
+            return;
+          }
+          
+          // Calculate adjustments
+          const adjustments = generateAdjustments(data.subject, data.comparable);
+          
+          // Calculate adjusted price
+          const adjustedPrice = data.comparable.salePrice + 
+            Object.values(adjustments).reduce((sum, val) => sum + val, 0);
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            adjustments,
+            adjustedPrice,
+            originalPrice: data.comparable.salePrice
+          }));
+        } catch (error) {
+          console.error('Error calculating adjustments:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error calculating adjustments' }));
+        }
+        return;
+      }
+      
+      // Data validation
+      if (req.method === 'POST' && path === '/valuation/validate-data') {
+        // Check if user is authenticated
+        if (!userId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Run data validator agent
+          const validationResults = await runAgent('data-validator', data);
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(validationResults));
+        } catch (error) {
+          console.error('Error validating data:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error validating data' }));
+        }
+        return;
+      }
+      
+      // Quality control check
+      if (req.method === 'POST' && path === '/valuation/quality-check') {
+        // Check if user is authenticated and has appropriate role
+        if (!userId || (userRole !== 'admin' && userRole !== 'reviewer')) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Permission denied' }));
+          return;
+        }
+        
+        try {
+          // Validate required data
+          if (!data.report) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Report data is required' }));
+            return;
+          }
+          
+          // Run QC reviewer agent
+          const qcResults = await runAgent('qc-reviewer', data);
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(qcResults));
+        } catch (error) {
+          console.error('Error performing quality check:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error performing quality check' }));
+        }
+        return;
+      }
+    }
+    
+    // If no endpoint matched, return 404
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Endpoint not found' }));
   } catch (error) {
-    console.error('Error finding comparables:', error);
-    res.status(500).json({ error: 'Failed to find comparable properties' });
+    console.error('Unhandled error:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
   }
 });
 
-// Calculate location-based similarity score
-function calculateLocationScore(subject, comp) {
-  // In a real implementation, this would use geocoding and distance calculations
-  // For this example, we'll use a simplified approach
-  
-  // Same city and state is a base score of 0.7
-  let score = 0.7;
-  
-  // Same zip code adds 0.2
-  if (subject.zipCode === comp.zipCode) {
-    score += 0.2;
-  }
-  
-  // For the remaining 0.1, we would normally use actual distance
-  // Here we'll just add a random factor to simulate variations within a city
-  score += Math.random() * 0.1;
-  
-  return Math.min(score, 1.0);
-}
-
-// Calculate size-based similarity score
-function calculateSizeScore(subject, comp) {
-  let score = 1.0;
-  
-  // Building size difference
-  if (subject.buildingSize && comp.buildingSize) {
-    const subjectSize = parseFloat(subject.buildingSize);
-    const compSize = parseFloat(comp.buildingSize);
-    
-    if (!isNaN(subjectSize) && !isNaN(compSize) && subjectSize > 0) {
-      const sizeDiff = Math.abs(subjectSize - compSize) / subjectSize;
-      // Deduct points based on size difference percentage
-      if (sizeDiff > 0.3) {
-        score -= 0.5;
-      } else if (sizeDiff > 0.2) {
-        score -= 0.3;
-      } else if (sizeDiff > 0.1) {
-        score -= 0.1;
-      }
-    }
-  }
-  
-  // Bedrooms difference
-  if (subject.bedrooms && comp.bedrooms) {
-    const bedroomDiff = Math.abs(subject.bedrooms - comp.bedrooms);
-    if (bedroomDiff >= 2) {
-      score -= 0.2;
-    } else if (bedroomDiff === 1) {
-      score -= 0.1;
-    }
-  }
-  
-  // Bathrooms difference
-  if (subject.bathrooms && comp.bathrooms) {
-    const bathroomDiff = Math.abs(subject.bathrooms - comp.bathrooms);
-    if (bathroomDiff >= 2) {
-      score -= 0.2;
-    } else if (bathroomDiff === 1) {
-      score -= 0.1;
-    }
-  }
-  
-  // Lot size difference
-  if (subject.lotSize && comp.lotSize) {
-    const subjectLot = parseFloat(subject.lotSize);
-    const compLot = parseFloat(comp.lotSize);
-    
-    if (!isNaN(subjectLot) && !isNaN(compLot) && subjectLot > 0) {
-      const lotDiff = Math.abs(subjectLot - compLot) / subjectLot;
-      if (lotDiff > 0.5) {
-        score -= 0.2;
-      } else if (lotDiff > 0.25) {
-        score -= 0.1;
-      }
-    }
-  }
-  
-  return Math.max(score, 0.0);
-}
-
-// Calculate age-based similarity score
-function calculateAgeScore(subject, comp) {
-  if (!subject.yearBuilt || !comp.yearBuilt) {
-    return 0.5; // Default middle score if we don't have age data
-  }
-  
-  const ageDiff = Math.abs(subject.yearBuilt - comp.yearBuilt);
-  
-  if (ageDiff <= 5) {
-    return 1.0;
-  } else if (ageDiff <= 10) {
-    return 0.8;
-  } else if (ageDiff <= 20) {
-    return 0.6;
-  } else if (ageDiff <= 30) {
-    return 0.4;
-  } else {
-    return 0.2;
-  }
-}
-
-// Calculate feature-based similarity score
-function calculateFeatureScore(subject, comp) {
-  // For this simplified implementation, we'll use property type as the main feature
-  if (subject.propertyType === comp.propertyType) {
-    return 1.0;
-  } else {
-    // Different property types are less similar
-    return 0.3;
-  }
-  
-  // In a real implementation, this would compare detailed property features
-  // stored in the features JSONB field
-}
-
-// Generate adjustment values
+/**
+ * Calculate adjustments between subject and comparable properties
+ * @param {Object} subject - Subject property
+ * @param {Object} comp - Comparable property
+ * @returns {Object} - Adjustments by category
+ */
 function generateAdjustments(subject, comp) {
   const adjustments = {};
   
@@ -386,358 +548,256 @@ function generateAdjustments(subject, comp) {
     }
   }
   
+  // Lot size adjustment
+  if (subject.lotSize && comp.lotSize) {
+    const subjectLot = parseFloat(subject.lotSize);
+    const compLot = parseFloat(comp.lotSize);
+    
+    if (!isNaN(subjectLot) && !isNaN(compLot)) {
+      const lotDiff = subjectLot - compLot;
+      if (Math.abs(lotDiff) > 0) {
+        // Assume $2 per square foot for lot size difference
+        adjustments.lotSize = Math.round(lotDiff * 2);
+      }
+    }
+  }
+  
+  // Garage/parking adjustment
+  if (subject.parkingSpaces && comp.parkingSpaces) {
+    const parkingDiff = subject.parkingSpaces - comp.parkingSpaces;
+    if (parkingDiff !== 0) {
+      // Assume $5,000 per parking space
+      adjustments.parking = parkingDiff * 5000;
+    }
+  }
+  
   return adjustments;
 }
 
-// Analyze market trends
-app.post('/market/analyze', async (req, res) => {
-  try {
-    const { 
-      city, 
-      state, 
-      zipCode, 
-      propertyType, 
-      timeframe = 12, // months
-      bedrooms,
-      bathrooms,
-      minYearBuilt,
-      maxYearBuilt
-    } = req.body;
-    
-    // Validate required fields
-    if (!city || !state) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['city', 'state']
-      });
-    }
-    
-    // Build query conditions
-    let conditions = [
-      eq(properties.city, city),
-      eq(properties.state, state)
-    ];
-    
-    if (zipCode) {
-      conditions.push(eq(properties.zipCode, zipCode));
-    }
-    
-    if (propertyType) {
-      conditions.push(eq(properties.propertyType, propertyType));
-    }
-    
-    if (bedrooms) {
-      conditions.push(eq(properties.bedrooms, Number(bedrooms)));
-    }
-    
-    if (bathrooms) {
-      conditions.push(eq(properties.bathrooms, Number(bathrooms)));
-    }
-    
-    if (minYearBuilt) {
-      conditions.push(gte(properties.yearBuilt, Number(minYearBuilt)));
-    }
-    
-    if (maxYearBuilt) {
-      conditions.push(lte(properties.yearBuilt, Number(maxYearBuilt)));
-    }
-    
-    // Get properties in the area
-    const areaProperties = await db.select()
-      .from(properties)
-      .where(and(...conditions));
-    
-    // For market analysis, we'd normally query sales data
-    // For this implementation, we'll generate some synthetic market metrics
-    
-    // Get historical timeframe - last X months
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setMonth(startDate.getMonth() - timeframe);
-    
-    // In a real implementation, we would get comparable sales within the timeframe
-    // and do actual analysis. For now, we'll generate representative data
-    
-    // Calculate market metrics
-    const marketMetrics = calculateMarketMetrics(areaProperties, startDate, endDate);
-    
-    // Calculate trends
-    const marketTrends = analyzeMarketTrends(marketMetrics, timeframe);
-    
-    // Get overall market conditions assessment
-    const marketConditions = assessMarketConditions(marketMetrics, marketTrends);
-    
-    // Generate market summary
-    const location = zipCode ? `${city}, ${state} ${zipCode}` : `${city}, ${state}`;
-    const marketSummary = generateMarketSummary(location, marketMetrics, marketConditions);
-    
-    res.json({
-      location: {
-        city,
-        state,
-        zipCode
-      },
-      propertyType,
-      timeframe,
-      metrics: marketMetrics,
-      trends: marketTrends,
-      conditions: marketConditions,
-      summary: marketSummary
-    });
-  } catch (error) {
-    console.error('Error analyzing market:', error);
-    res.status(500).json({ error: 'Failed to analyze market trends' });
-  }
-});
-
-// Calculate market metrics
+/**
+ * Calculate market metrics from property data
+ * @param {Array} properties - Property data
+ * @param {Date} startDate - Start date for analysis period
+ * @param {Date} endDate - End date for analysis period
+ * @returns {Object} - Market metrics
+ */
 function calculateMarketMetrics(properties, startDate, endDate) {
-  // In a real implementation, this would calculate actual metrics
-  // For this simplified version, we'll generate reasonable values
+  // Extract prices
+  const prices = properties.map(property => property.salePrice).filter(price => !isNaN(price));
   
-  // Calculate average price per property type
-  const propertyTypes = {};
-  let totalPropertyCount = 0;
-  
-  properties.forEach(property => {
-    totalPropertyCount++;
-    
-    if (!propertyTypes[property.propertyType]) {
-      propertyTypes[property.propertyType] = {
-        count: 0,
-        totalSize: 0,
-        prices: []
-      };
-    }
-    
-    propertyTypes[property.propertyType].count++;
-    
-    if (property.buildingSize) {
-      const size = parseFloat(property.buildingSize);
-      if (!isNaN(size)) {
-        propertyTypes[property.propertyType].totalSize += size;
-      }
-    }
-    
-    // For this demo, we'll generate a reasonable price based on property attributes
-    const basePrice = {
-      'residential': 300000,
-      'commercial': 750000,
-      'industrial': 1200000,
-      'land': 175000,
-      'mixed_use': 850000
-    }[property.propertyType] || 350000;
-    
-    // Adjust by size if available
-    let priceAdjustment = 1.0;
-    if (property.buildingSize) {
-      const size = parseFloat(property.buildingSize);
-      if (!isNaN(size)) {
-        // Adjust based on difference from average size for that type
-        const avgSize = {
-          'residential': 2000,
-          'commercial': 5000,
-          'industrial': 15000,
-          'land': 10000,
-          'mixed_use': 7500
-        }[property.propertyType] || 2000;
-        
-        priceAdjustment = 0.5 + (size / avgSize) * 0.5;
-      }
-    }
-    
-    // Adjust by age if available
-    if (property.yearBuilt) {
-      const age = new Date().getFullYear() - property.yearBuilt;
-      // Newer properties are worth more, with diminishing returns
-      priceAdjustment *= Math.max(0.7, 1 - (age * 0.01));
-    }
-    
-    // Add some randomness to simulate market variability
-    priceAdjustment *= 0.85 + (Math.random() * 0.3);
-    
-    const estimatedPrice = Math.round(basePrice * priceAdjustment);
-    propertyTypes[property.propertyType].prices.push(estimatedPrice);
-  });
-  
-  // Calculate averages and medians
-  const metrics = {
-    totalProperties: totalPropertyCount,
-    averageDaysOnMarket: Math.round(30 + Math.random() * 60),
-    medianDaysOnMarket: Math.round(20 + Math.random() * 50),
-    byPropertyType: {}
-  };
-  
-  Object.keys(propertyTypes).forEach(type => {
-    const data = propertyTypes[type];
-    const prices = data.prices.sort((a, b) => a - b);
-    
-    const sum = prices.reduce((total, price) => total + price, 0);
-    const average = Math.round(sum / prices.length);
-    
-    const median = prices.length % 2 === 0 
-      ? Math.round((prices[prices.length / 2 - 1] + prices[prices.length / 2]) / 2)
-      : prices[Math.floor(prices.length / 2)];
-    
-    const avgSize = data.totalSize > 0 ? Math.round(data.totalSize / data.count) : null;
-    const pricePerSqFt = avgSize ? Math.round(average / avgSize) : null;
-    
-    metrics.byPropertyType[type] = {
-      count: data.count,
-      averagePrice: average,
-      medianPrice: median,
-      averageSize: avgSize,
-      pricePerSqFt,
-      inventory: Math.round(data.count * (0.1 + Math.random() * 0.3)), // 10-40% of properties on market
-      averageDaysOnMarket: Math.round(metrics.averageDaysOnMarket * (0.8 + Math.random() * 0.4)), // Variation by type
+  // Bail out if no valid prices
+  if (prices.length === 0) {
+    return {
+      count: 0,
+      avgPrice: 0,
+      medianPrice: 0,
+      minPrice: 0,
+      maxPrice: 0,
+      avgDaysOnMarket: 0
     };
-  });
+  }
   
-  return metrics;
+  // Sort prices for median calculation
+  const sortedPrices = [...prices].sort((a, b) => a - b);
+  
+  // Calculate median price
+  const middle = Math.floor(sortedPrices.length / 2);
+  const medianPrice = sortedPrices.length % 2 === 0
+    ? (sortedPrices[middle - 1] + sortedPrices[middle]) / 2
+    : sortedPrices[middle];
+  
+  // Calculate days on market
+  const daysOnMarket = properties
+    .map(property => property.daysOnMarket)
+    .filter(days => !isNaN(days));
+  
+  const avgDaysOnMarket = daysOnMarket.length > 0
+    ? Math.round(daysOnMarket.reduce((sum, days) => sum + days, 0) / daysOnMarket.length)
+    : 0;
+  
+  return {
+    count: prices.length,
+    avgPrice: Math.round(prices.reduce((sum, price) => sum + price, 0) / prices.length),
+    medianPrice: Math.round(medianPrice),
+    minPrice: Math.min(...prices),
+    maxPrice: Math.max(...prices),
+    avgDaysOnMarket
+  };
 }
 
-// Analyze market trends
+/**
+ * Analyze market trends from metrics
+ * @param {Object} metrics - Market metrics
+ * @param {number} timeframe - Timeframe in months
+ * @returns {Object} - Market trends
+ */
 function analyzeMarketTrends(metrics, timeframe) {
-  // In a real implementation, this would compare current metrics with historical data
-  // For this simplified version, we'll generate reasonable trends
+  // This is a simplified version for demonstration
+  // In a real implementation, we would compare current metrics to historical data
   
-  const trends = {
-    priceChange: {},
-    inventoryChange: {},
-    daysOnMarketChange: {}
-  };
+  // Simulate a trend based on metrics
+  const trendScore = Math.min(10, Math.max(0, 10 - metrics.avgDaysOnMarket / 10));
   
-  // Generate price trends by property type
-  Object.keys(metrics.byPropertyType).forEach(type => {
-    // Generate a plausible yearly appreciation rate between 2-8%
-    const yearlyAppreciation = 0.02 + (Math.random() * 0.06);
-    
-    // Calculate proportional appreciation for the specified timeframe
-    const timeframeAppreciation = (yearlyAppreciation / 12) * timeframe;
-    
-    // Add some random variation
-    const priceChange = timeframeAppreciation * (0.7 + Math.random() * 0.6);
-    
-    trends.priceChange[type] = {
-      percent: priceChange,
-      value: Math.round(metrics.byPropertyType[type].averagePrice * priceChange)
-    };
-    
-    // Inventory trends - can go up or down
-    trends.inventoryChange[type] = {
-      percent: (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 0.2),
-      direction: Math.random() > 0.5 ? 'increase' : 'decrease'
-    };
-    
-    // Days on market trends - can go up or down
-    trends.daysOnMarketChange[type] = {
-      percent: (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 0.15),
-      direction: Math.random() > 0.5 ? 'increase' : 'decrease'
-    };
-  });
-  
-  return trends;
-}
-
-// Assess market conditions
-function assessMarketConditions(metrics, trends) {
-  const conditions = {
-    byPropertyType: {}
-  };
-  
-  Object.keys(metrics.byPropertyType).forEach(type => {
-    // Determine market type based on price and inventory trends
-    const priceChange = trends.priceChange[type].percent;
-    const inventoryChange = trends.inventoryChange[type].percent;
-    const daysOnMarketChange = trends.daysOnMarketChange[type].percent;
-    
-    let marketType, demand, priceDirection;
-    
-    // Determine market type
-    if (priceChange > 0.04 && inventoryChange < 0 && daysOnMarketChange < 0) {
-      marketType = 'Hot Seller\'s Market';
-      demand = 'Very Strong';
-    } else if (priceChange > 0.02 && (inventoryChange < 0.05 || daysOnMarketChange < 0)) {
-      marketType = 'Seller\'s Market';
-      demand = 'Strong';
-    } else if (priceChange > 0 && priceChange <= 0.02) {
-      marketType = 'Balanced Market';
-      demand = 'Stable';
-    } else if (priceChange <= 0 && priceChange >= -0.02) {
-      marketType = 'Slight Buyer\'s Market';
-      demand = 'Moderate';
-    } else {
-      marketType = 'Buyer\'s Market';
-      demand = 'Weak';
-    }
-    
-    // Determine price direction
-    if (priceChange > 0.03) {
-      priceDirection = 'Rising Rapidly';
-    } else if (priceChange > 0) {
-      priceDirection = 'Rising';
-    } else if (priceChange === 0) {
-      priceDirection = 'Stable';
-    } else if (priceChange > -0.03) {
-      priceDirection = 'Declining';
-    } else {
-      priceDirection = 'Declining Rapidly';
-    }
-    
-    conditions.byPropertyType[type] = {
-      marketType,
-      demand,
-      priceDirection,
-      overall: getOverallCondition(marketType, demand, priceDirection)
-    };
-  });
-  
-  return conditions;
-}
-
-// Get overall market condition
-function getOverallCondition(marketType, demand, priceDirection) {
-  // Simplified logic to determine overall market condition
-  if (marketType.includes('Hot Seller') || demand === 'Very Strong') {
-    return 'Excellent';
-  } else if (marketType.includes('Seller') || demand === 'Strong') {
-    return 'Good';
-  } else if (marketType.includes('Balanced') || demand === 'Stable') {
-    return 'Fair';
-  } else if (marketType.includes('Slight Buyer') || demand === 'Moderate') {
-    return 'Moderate';
+  // Determine trend direction
+  let trend;
+  if (trendScore > 7) {
+    trend = 'Strong growth';
+  } else if (trendScore > 5) {
+    trend = 'Moderate growth';
+  } else if (trendScore > 3) {
+    trend = 'Stable';
+  } else if (trendScore > 1) {
+    trend = 'Slight decline';
   } else {
-    return 'Challenging';
+    trend = 'Significant decline';
   }
+  
+  // Simulated price change based on trend score
+  const priceChange = (trendScore - 5) * (metrics.avgPrice * 0.02);
+  const percentChange = priceChange / metrics.avgPrice * 100;
+  
+  // Simulated DOM change based on trend score (inverse relationship)
+  const daysOnMarketChange = (5 - trendScore) * 2;
+  
+  // Simulated inventory change based on trend score (inverse relationship)
+  const inventoryChange = (5 - trendScore) * 3;
+  
+  return {
+    priceChange: Math.round(priceChange),
+    percentChange: Math.round(percentChange * 10) / 10, // Round to 1 decimal place
+    daysOnMarketChange: Math.round(daysOnMarketChange),
+    inventoryChange: Math.round(inventoryChange),
+    trend
+  };
 }
 
-// Generate market summary
+/**
+ * Assess market conditions from metrics and trends
+ * @param {Object} metrics - Market metrics
+ * @param {Object} trends - Market trends
+ * @returns {Object} - Market conditions
+ */
+function assessMarketConditions(metrics, trends) {
+  // Determine market type
+  let marketType;
+  if (trends.percentChange > 8 && metrics.avgDaysOnMarket < 30) {
+    marketType = 'Hot Seller\'s Market';
+  } else if (trends.percentChange > 3 && metrics.avgDaysOnMarket < 45) {
+    marketType = 'Seller\'s Market';
+  } else if (trends.percentChange > -3 && trends.percentChange <= 3) {
+    marketType = 'Balanced Market';
+  } else if (trends.percentChange > -8 && metrics.avgDaysOnMarket < 90) {
+    marketType = 'Buyer\'s Market';
+  } else {
+    marketType = 'Strong Buyer\'s Market';
+  }
+  
+  // Determine demand level
+  let demand;
+  if (metrics.avgDaysOnMarket < 30) {
+    demand = 'Very Strong';
+  } else if (metrics.avgDaysOnMarket < 45) {
+    demand = 'Strong';
+  } else if (metrics.avgDaysOnMarket < 60) {
+    demand = 'Moderate';
+  } else if (metrics.avgDaysOnMarket < 90) {
+    demand = 'Weak';
+  } else {
+    demand = 'Very Weak';
+  }
+  
+  // Determine price trend
+  let priceDirection;
+  if (trends.percentChange > 8) {
+    priceDirection = 'Rising Rapidly';
+  } else if (trends.percentChange > 2) {
+    priceDirection = 'Rising';
+  } else if (trends.percentChange >= -2) {
+    priceDirection = 'Stable';
+  } else if (trends.percentChange >= -8) {
+    priceDirection = 'Declining';
+  } else {
+    priceDirection = 'Declining Rapidly';
+  }
+  
+  // Determine overall condition
+  const overall = getOverallCondition(marketType, demand, priceDirection);
+  
+  return {
+    marketType,
+    demand,
+    priceDirection,
+    overall
+  };
+}
+
+/**
+ * Determine overall market condition
+ * @param {string} marketType - Market type
+ * @param {string} demand - Demand level
+ * @param {string} priceDirection - Price direction
+ * @returns {string} - Overall condition
+ */
+function getOverallCondition(marketType, demand, priceDirection) {
+  // Weighted scoring system for overall condition
+  let score = 0;
+  
+  // Market type score
+  if (marketType.includes('Hot Seller')) score += 5;
+  else if (marketType.includes('Seller')) score += 4;
+  else if (marketType.includes('Balanced')) score += 3;
+  else if (marketType.includes('Buyer')) score += 2;
+  else score += 1;
+  
+  // Demand score
+  if (demand === 'Very Strong') score += 5;
+  else if (demand === 'Strong') score += 4;
+  else if (demand === 'Moderate') score += 3;
+  else if (demand === 'Weak') score += 2;
+  else score += 1;
+  
+  // Price direction score
+  if (priceDirection === 'Rising Rapidly') score += 5;
+  else if (priceDirection === 'Rising') score += 4;
+  else if (priceDirection === 'Stable') score += 3;
+  else if (priceDirection === 'Declining') score += 2;
+  else score += 1;
+  
+  // Convert score to condition
+  const avgScore = score / 3;
+  
+  if (avgScore > 4.5) return 'Excellent';
+  if (avgScore > 3.5) return 'Good';
+  if (avgScore > 2.5) return 'Fair';
+  if (avgScore > 1.5) return 'Challenging';
+  return 'Difficult';
+}
+
+/**
+ * Generate market summary
+ * @param {Object} location - Location information
+ * @param {Object} metrics - Market metrics
+ * @param {Object} conditions - Market conditions
+ * @returns {string} - Market summary
+ */
 function generateMarketSummary(location, metrics, conditions) {
-  // Get the most common property type
-  let primaryType = '';
-  let maxCount = 0;
+  const { city, state, zipCode } = location;
+  const { avgPrice, medianPrice, avgDaysOnMarket } = metrics;
+  const { marketType, demand, priceDirection, overall } = conditions;
   
-  Object.keys(metrics.byPropertyType).forEach(type => {
-    if (metrics.byPropertyType[type].count > maxCount) {
-      maxCount = metrics.byPropertyType[type].count;
-      primaryType = type;
-    }
-  });
+  const locationString = zipCode ? `${city}, ${state} ${zipCode}` : `${city}, ${state}`;
   
-  if (!primaryType) {
-    return `The ${location} real estate market has insufficient data for analysis.`;
-  }
-  
-  const typeMetrics = metrics.byPropertyType[primaryType];
-  const typeConditions = conditions.byPropertyType[primaryType];
-  
-  return `The ${location} ${primaryType} real estate market is currently a ${typeConditions.marketType} 
-with ${typeConditions.demand.toLowerCase()} buyer demand. Property values are ${typeConditions.priceDirection.toLowerCase()}, 
-with an average price of ${formatCurrency(typeMetrics.averagePrice)}${typeMetrics.pricePerSqFt ? ` (${formatCurrency(typeMetrics.pricePerSqFt)}/sqft)` : ''}. 
-The average property spends ${typeMetrics.averageDaysOnMarket} days on the market before selling.`;
+  return `The ${locationString} real estate market is currently a ${marketType} with ${demand.toLowerCase()} buyer demand. 
+Property values are ${priceDirection.toLowerCase()}, with an average price of ${formatCurrency(avgPrice)} and a median price of ${formatCurrency(medianPrice)}. 
+The average property spends ${avgDaysOnMarket} days on the market before selling. 
+Overall market conditions are ${overall.toLowerCase()}.`;
 }
 
-// Format currency
+/**
+ * Format currency value
+ * @param {number} value - Value to format
+ * @returns {string} - Formatted currency string
+ */
 function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -747,15 +807,26 @@ function formatCurrency(value) {
   }).format(value);
 }
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Analysis Service Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+// Initialize database and start server
+storageModule.initializeDatabase()
+  .then(() => {
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`Analysis service running on port ${PORT}`);
+    });
+  })
+  .catch(error => {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
+  });
+
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down analysis service...');
+  await storageModule.closeDatabase();
+  server.close(() => {
+    console.log('Analysis service shut down complete');
+    process.exit(0);
+  });
 });
 
-// Start the server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Analysis service running on port ${PORT}`);
-});
-
-export default app;
+export default server;

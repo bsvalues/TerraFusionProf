@@ -6,671 +6,513 @@
  * addressing, characteristics, images, and related metadata.
  */
 
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import { db } from '../../packages/shared/storage.js';
+import http from 'http';
+import { URL } from 'url';
 import { properties, propertyImages } from '../../packages/shared/schema/index.js';
-import { eq, and, desc, asc, sql, like } from 'drizzle-orm';
+import storageModule from '../../packages/shared/storage.js';
 
-// Get the current directory path
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Destructure the storage module for easier access
+const { db, create, find, findById, update, remove } = storageModule;
 
-// Initialize Express app
-const app = express();
-const PORT = process.env.PROPERTY_SERVICE_PORT || 5001;
+// Service configuration
+const PORT = process.env.SERVICE_PORT || 5001;
+const SERVICE_NAME = 'property-service';
 
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Request logging middleware
-const logRequest = (req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
-  });
-  next();
-};
-
-// Authentication middleware - we assume the API Gateway already validated the token
-// and set the user ID and role in the request headers
-const authenticateRequest = (req, res, next) => {
+// Create HTTP server
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const path = url.pathname;
+  
+  console.log(`${req.method} ${path}`);
+  
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id, X-User-Role, X-User-Email');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  
+  // Parse user information from headers (set by API Gateway)
   const userId = req.headers['x-user-id'];
   const userRole = req.headers['x-user-role'];
+  const userEmail = req.headers['x-user-email'];
   
-  if (!userId || !userRole) {
-    return res.status(401).json({ error: 'Authentication required' });
+  // Handle health check (used for liveness probe)
+  if (path === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'healthy',
+      service: SERVICE_NAME,
+      timestamp: new Date().toISOString()
+    }));
+    return;
   }
   
-  req.user = {
-    id: Number(userId),
-    role: userRole
-  };
-  
-  next();
-};
+  try {
+    // Get request body for POST and PUT requests
+    let body = '';
+    if (req.method === 'POST' || req.method === 'PUT') {
+      await new Promise((resolve) => {
+        req.on('data', chunk => {
+          body += chunk.toString();
+        });
+        req.on('end', resolve);
+      });
+    }
+    
+    // Parse JSON body if content-type is application/json
+    let data = {};
+    if (body && req.headers['content-type'] === 'application/json') {
+      try {
+        data = JSON.parse(body);
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+        return;
+      }
+    }
+    
+    // Properties endpoints
+    if (path === '/properties' || path.startsWith('/properties/')) {
+      
+      // Get all properties
+      if (req.method === 'GET' && path === '/properties') {
+        // Parse query parameters
+        const limit = parseInt(url.searchParams.get('limit')) || 100;
+        const offset = parseInt(url.searchParams.get('offset')) || 0;
+        const sortBy = url.searchParams.get('sortBy') || 'id';
+        const sortOrder = url.searchParams.get('sortOrder') || 'asc';
+        
+        // Filter properties based on query parameters
+        const filters = {};
+        if (url.searchParams.has('propertyType')) {
+          filters.propertyType = url.searchParams.get('propertyType');
+        }
+        if (url.searchParams.has('city')) {
+          filters.city = url.searchParams.get('city');
+        }
+        if (url.searchParams.has('state')) {
+          filters.state = url.searchParams.get('state');
+        }
+        
+        try {
+          // Find properties with filters, limit, offset, and ordering
+          const propertyList = await find(properties, filters, {
+            limit,
+            offset,
+            orderBy: {
+              [sortBy]: sortOrder
+            }
+          });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            properties: propertyList,
+            total: propertyList.length, // In a real app, this would be the total count without limit
+            limit,
+            offset
+          }));
+        } catch (error) {
+          console.error('Error fetching properties:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error fetching properties' }));
+        }
+        return;
+      }
+      
+      // Get property by ID
+      if (req.method === 'GET' && path.match(/^\/properties\/\d+$/)) {
+        const propertyId = parseInt(path.split('/')[2]);
+        
+        try {
+          const property = await findById(properties, propertyId);
+          
+          if (!property) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Property not found' }));
+            return;
+          }
+          
+          // Get property images
+          const propertyImagesList = await find(propertyImages, { propertyId }, {
+            orderBy: { sortOrder: 'asc' }
+          });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            ...property,
+            images: propertyImagesList
+          }));
+        } catch (error) {
+          console.error('Error fetching property:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error fetching property' }));
+        }
+        return;
+      }
+      
+      // Create property
+      if (req.method === 'POST' && path === '/properties') {
+        try {
+          // Validate required fields
+          const requiredFields = ['address', 'city', 'state', 'zipCode', 'propertyType'];
+          for (const field of requiredFields) {
+            if (!data[field]) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `Missing required field: ${field}` }));
+              return;
+            }
+          }
+          
+          // Set creation metadata
+          const propertyData = {
+            ...data,
+            createdBy: userId || null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          
+          // Create property
+          const newProperty = await create(properties, propertyData);
+          
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(newProperty));
+        } catch (error) {
+          console.error('Error creating property:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error creating property' }));
+        }
+        return;
+      }
+      
+      // Update property
+      if (req.method === 'PUT' && path.match(/^\/properties\/\d+$/)) {
+        const propertyId = parseInt(path.split('/')[2]);
+        
+        try {
+          // Check if property exists
+          const existingProperty = await findById(properties, propertyId);
+          
+          if (!existingProperty) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Property not found' }));
+            return;
+          }
+          
+          // Set update metadata
+          const propertyData = {
+            ...data,
+            updatedAt: new Date()
+          };
+          
+          // Update property
+          const updatedProperty = await update(properties, propertyId, propertyData);
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(updatedProperty));
+        } catch (error) {
+          console.error('Error updating property:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error updating property' }));
+        }
+        return;
+      }
+      
+      // Delete property
+      if (req.method === 'DELETE' && path.match(/^\/properties\/\d+$/)) {
+        const propertyId = parseInt(path.split('/')[2]);
+        
+        try {
+          // Check if property exists
+          const existingProperty = await findById(properties, propertyId);
+          
+          if (!existingProperty) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Property not found' }));
+            return;
+          }
+          
+          // Delete property
+          await remove(properties, propertyId);
+          
+          res.writeHead(204);
+          res.end();
+        } catch (error) {
+          console.error('Error deleting property:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error deleting property' }));
+        }
+        return;
+      }
+      
+      // Property images endpoints
+      if (path === '/properties/:id/images' || path.match(/^\/properties\/\d+\/images(\/\d+)?$/)) {
+        const propertyId = parseInt(path.split('/')[2]);
+        const imageId = path.split('/')[4] ? parseInt(path.split('/')[4]) : null;
+        
+        // Get property images
+        if (req.method === 'GET' && !imageId) {
+          try {
+            // Check if property exists
+            const existingProperty = await findById(properties, propertyId);
+            
+            if (!existingProperty) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Property not found' }));
+              return;
+            }
+            
+            // Get property images
+            const propertyImagesList = await find(propertyImages, { propertyId }, {
+              orderBy: { sortOrder: 'asc' }
+            });
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ images: propertyImagesList }));
+          } catch (error) {
+            console.error('Error fetching property images:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Error fetching property images' }));
+          }
+          return;
+        }
+        
+        // Get property image by ID
+        if (req.method === 'GET' && imageId) {
+          try {
+            // Check if property exists
+            const existingProperty = await findById(properties, propertyId);
+            
+            if (!existingProperty) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Property not found' }));
+              return;
+            }
+            
+            // Get property image
+            const image = await findById(propertyImages, imageId);
+            
+            if (!image || image.propertyId !== propertyId) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Image not found' }));
+              return;
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(image));
+          } catch (error) {
+            console.error('Error fetching property image:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Error fetching property image' }));
+          }
+          return;
+        }
+        
+        // Add property image
+        if (req.method === 'POST' && !imageId) {
+          try {
+            // Check if property exists
+            const existingProperty = await findById(properties, propertyId);
+            
+            if (!existingProperty) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Property not found' }));
+              return;
+            }
+            
+            // Validate required fields
+            if (!data.url) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Image URL is required' }));
+              return;
+            }
+            
+            // Set image metadata
+            const imageData = {
+              propertyId,
+              url: data.url,
+              caption: data.caption || null,
+              type: data.type || 'exterior',
+              isPrimary: data.isPrimary || false,
+              sortOrder: data.sortOrder || 0,
+              uploadedBy: userId || null,
+              uploadedAt: new Date()
+            };
+            
+            // Create image
+            const newImage = await create(propertyImages, imageData);
+            
+            // If this is the primary image and isPrimary is true,
+            // update all other images for this property to not be primary
+            if (newImage.isPrimary) {
+              await db.update(propertyImages)
+                .set({ isPrimary: false })
+                .where({ propertyId, id: { notEquals: newImage.id } });
+            }
+            
+            res.writeHead(201, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(newImage));
+          } catch (error) {
+            console.error('Error adding property image:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Error adding property image' }));
+          }
+          return;
+        }
+        
+        // Update property image
+        if (req.method === 'PUT' && imageId) {
+          try {
+            // Check if property exists
+            const existingProperty = await findById(properties, propertyId);
+            
+            if (!existingProperty) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Property not found' }));
+              return;
+            }
+            
+            // Check if image exists
+            const existingImage = await findById(propertyImages, imageId);
+            
+            if (!existingImage || existingImage.propertyId !== propertyId) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Image not found' }));
+              return;
+            }
+            
+            // Update image
+            const updatedImage = await update(propertyImages, imageId, data);
+            
+            // If this is the primary image and isPrimary is true,
+            // update all other images for this property to not be primary
+            if (updatedImage.isPrimary) {
+              await db.update(propertyImages)
+                .set({ isPrimary: false })
+                .where({ propertyId, id: { notEquals: imageId } });
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(updatedImage));
+          } catch (error) {
+            console.error('Error updating property image:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Error updating property image' }));
+          }
+          return;
+        }
+        
+        // Delete property image
+        if (req.method === 'DELETE' && imageId) {
+          try {
+            // Check if property exists
+            const existingProperty = await findById(properties, propertyId);
+            
+            if (!existingProperty) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Property not found' }));
+              return;
+            }
+            
+            // Check if image exists
+            const existingImage = await findById(propertyImages, imageId);
+            
+            if (!existingImage || existingImage.propertyId !== propertyId) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Image not found' }));
+              return;
+            }
+            
+            // Delete image
+            await remove(propertyImages, imageId);
+            
+            res.writeHead(204);
+            res.end();
+          } catch (error) {
+            console.error('Error deleting property image:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Error deleting property image' }));
+          }
+          return;
+        }
+      }
+    }
+    
+    // Property statistics endpoint
+    if (path === '/statistics') {
+      if (req.method === 'GET') {
+        try {
+          // Get property counts by type
+          const propertyTypeStats = await db.query.properties.groupBy('propertyType').count();
+          
+          // Get average values
+          const averageValues = await db.select({
+            avgBuildingSize: db.fn.avg(properties.buildingSize),
+            avgBedrooms: db.fn.avg(properties.bedrooms),
+            avgBathrooms: db.fn.avg(properties.bathrooms),
+            avgYearBuilt: db.fn.avg(properties.yearBuilt)
+          }).from(properties);
+          
+          // Get property counts by state
+          const stateStats = await db.query.properties.groupBy('state').count();
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            totalProperties: propertyTypeStats.reduce((sum, stat) => sum + stat._count, 0),
+            byType: propertyTypeStats.reduce((acc, stat) => {
+              acc[stat.propertyType] = stat._count;
+              return acc;
+            }, {}),
+            byState: stateStats.reduce((acc, stat) => {
+              acc[stat.state] = stat._count;
+              return acc;
+            }, {}),
+            averages: averageValues[0]
+          }));
+        } catch (error) {
+          console.error('Error fetching property statistics:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error fetching property statistics' }));
+        }
+        return;
+      }
+    }
+    
+    // If no endpoint matched, return 404
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Endpoint not found' }));
+  } catch (error) {
+    console.error('Unhandled error:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal server error' }));
+  }
+});
 
-// Apply global middleware
-app.use(logRequest);
-app.use(authenticateRequest);
+// Initialize database and start server
+storageModule.initializeDatabase()
+  .then(() => {
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`Property service running on port ${PORT}`);
+    });
+  })
+  .catch(error => {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
+  });
 
-// Health check endpoint (doesn't require authentication)
-app.get('/health', (req, res, next) => {
-  res.json({
-    status: 'healthy',
-    service: 'property-service',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down property service...');
+  await storageModule.closeDatabase();
+  server.close(() => {
+    console.log('Property service shut down complete');
+    process.exit(0);
   });
 });
 
-// Get all properties
-app.get('/properties', async (req, res) => {
-  try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      sort = 'createdAt', 
-      order = 'desc',
-      propertyType,
-      city,
-      state,
-      minBedrooms,
-      maxBedrooms,
-      minBathrooms,
-      maxBathrooms,
-      search
-    } = req.query;
-    
-    const offset = (Number(page) - 1) * Number(limit);
-    
-    // Build query conditions
-    let conditions = [];
-    
-    if (propertyType) {
-      conditions.push(eq(properties.propertyType, propertyType));
-    }
-    
-    if (city) {
-      conditions.push(like(properties.city, `%${city}%`));
-    }
-    
-    if (state) {
-      conditions.push(eq(properties.state, state));
-    }
-    
-    if (minBedrooms) {
-      conditions.push(sql`${properties.bedrooms} >= ${Number(minBedrooms)}`);
-    }
-    
-    if (maxBedrooms) {
-      conditions.push(sql`${properties.bedrooms} <= ${Number(maxBedrooms)}`);
-    }
-    
-    if (minBathrooms) {
-      conditions.push(sql`${properties.bathrooms} >= ${Number(minBathrooms)}`);
-    }
-    
-    if (maxBathrooms) {
-      conditions.push(sql`${properties.bathrooms} <= ${Number(maxBathrooms)}`);
-    }
-    
-    if (search) {
-      conditions.push(
-        sql`(${properties.address} ILIKE ${`%${search}%`} OR 
-             ${properties.city} ILIKE ${`%${search}%`} OR
-             ${properties.county} ILIKE ${`%${search}%`} OR
-             ${properties.description} ILIKE ${`%${search}%`})`
-      );
-    }
-    
-    // Create query
-    let query = db.select()
-      .from(properties);
-    
-    // Add conditions if any
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
-    
-    // Add sorting
-    if (order.toLowerCase() === 'desc') {
-      query = query.orderBy(desc(properties[sort]));
-    } else {
-      query = query.orderBy(asc(properties[sort]));
-    }
-    
-    // Add pagination
-    query = query.limit(Number(limit)).offset(offset);
-    
-    // Execute query
-    const results = await query;
-    
-    // Count total records for pagination metadata
-    const countQuery = db.select({ count: sql`count(*)` }).from(properties);
-    
-    if (conditions.length > 0) {
-      countQuery.where(and(...conditions));
-    }
-    
-    const countResult = await countQuery;
-    const total = Number(countResult[0].count);
-    
-    // Get primary images for each property
-    const propertyIds = results.map(p => p.id);
-    let primaryImages = [];
-    
-    if (propertyIds.length > 0) {
-      primaryImages = await db.select()
-        .from(propertyImages)
-        .where(
-          and(
-            sql`${propertyImages.propertyId} IN (${propertyIds.join(',')})`,
-            eq(propertyImages.isPrimary, true)
-          )
-        );
-    }
-    
-    // Map results with images
-    const propertiesWithImages = results.map(property => {
-      const primaryImage = primaryImages.find(img => img.propertyId === property.id);
-      return {
-        ...property,
-        primaryImage: primaryImage ? primaryImage.imageUrl : null
-      };
-    });
-    
-    res.json({
-      data: propertiesWithImages,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        pages: Math.ceil(total / Number(limit))
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching properties:', error);
-    res.status(500).json({ error: 'Failed to fetch properties' });
-  }
-});
-
-// Get property by ID
-app.get('/properties/:id', async (req, res) => {
-  try {
-    const propertyId = Number(req.params.id);
-    
-    // Get property details
-    const propertyResult = await db.select()
-      .from(properties)
-      .where(eq(properties.id, propertyId))
-      .limit(1);
-      
-    if (propertyResult.length === 0) {
-      return res.status(404).json({ error: 'Property not found' });
-    }
-    
-    // Get property images
-    const propertyImagesResult = await db.select()
-      .from(propertyImages)
-      .where(eq(propertyImages.propertyId, propertyId))
-      .orderBy(desc(propertyImages.isPrimary), asc(propertyImages.uploadedAt));
-    
-    const result = {
-      ...propertyResult[0],
-      images: propertyImagesResult
-    };
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Error fetching property:', error);
-    res.status(500).json({ error: 'Failed to fetch property details' });
-  }
-});
-
-// Create new property
-app.post('/properties', async (req, res) => {
-  try {
-    const { 
-      address, 
-      city, 
-      state, 
-      zipCode, 
-      county, 
-      country = 'USA',
-      latitude,
-      longitude,
-      propertyType,
-      yearBuilt,
-      lotSize,
-      buildingSize,
-      bedrooms,
-      bathrooms,
-      description,
-      features
-    } = req.body;
-    
-    // Validate required fields
-    if (!address || !city || !state || !zipCode || !propertyType) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['address', 'city', 'state', 'zipCode', 'propertyType']
-      });
-    }
-    
-    // Create new property
-    const newProperty = await db.insert(properties)
-      .values({
-        address,
-        city,
-        state,
-        zipCode,
-        county,
-        country,
-        latitude,
-        longitude,
-        propertyType,
-        yearBuilt,
-        lotSize,
-        buildingSize,
-        bedrooms,
-        bathrooms,
-        description,
-        features,
-        createdBy: req.user.id,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-      .returning();
-    
-    res.status(201).json(newProperty[0]);
-  } catch (error) {
-    console.error('Error creating property:', error);
-    res.status(500).json({ error: 'Failed to create property' });
-  }
-});
-
-// Update property
-app.put('/properties/:id', async (req, res) => {
-  try {
-    const propertyId = Number(req.params.id);
-    const { 
-      address, 
-      city, 
-      state, 
-      zipCode, 
-      county, 
-      country,
-      latitude,
-      longitude,
-      propertyType,
-      yearBuilt,
-      lotSize,
-      buildingSize,
-      bedrooms,
-      bathrooms,
-      description,
-      features
-    } = req.body;
-    
-    // Check if property exists
-    const existingProperty = await db.select({ id: properties.id })
-      .from(properties)
-      .where(eq(properties.id, propertyId))
-      .limit(1);
-      
-    if (existingProperty.length === 0) {
-      return res.status(404).json({ error: 'Property not found' });
-    }
-    
-    // Update property
-    const updatedProperty = await db.update(properties)
-      .set({
-        address,
-        city,
-        state,
-        zipCode,
-        county,
-        country,
-        latitude,
-        longitude,
-        propertyType,
-        yearBuilt,
-        lotSize,
-        buildingSize,
-        bedrooms,
-        bathrooms,
-        description,
-        features,
-        updatedAt: new Date()
-      })
-      .where(eq(properties.id, propertyId))
-      .returning();
-    
-    res.json(updatedProperty[0]);
-  } catch (error) {
-    console.error('Error updating property:', error);
-    res.status(500).json({ error: 'Failed to update property' });
-  }
-});
-
-// Delete property
-app.delete('/properties/:id', async (req, res) => {
-  try {
-    const propertyId = Number(req.params.id);
-    
-    // Check if property exists
-    const existingProperty = await db.select({ id: properties.id })
-      .from(properties)
-      .where(eq(properties.id, propertyId))
-      .limit(1);
-      
-    if (existingProperty.length === 0) {
-      return res.status(404).json({ error: 'Property not found' });
-    }
-    
-    // Delete property (this will cascade to images due to foreign key constraints)
-    await db.delete(properties)
-      .where(eq(properties.id, propertyId));
-    
-    res.json({ message: 'Property deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting property:', error);
-    res.status(500).json({ error: 'Failed to delete property' });
-  }
-});
-
-// Upload property image
-app.post('/properties/:id/images', async (req, res) => {
-  try {
-    const propertyId = Number(req.params.id);
-    const { imageUrl, imageType, caption, isPrimary = false } = req.body;
-    
-    // Validate required fields
-    if (!imageUrl || !imageType) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        requiredFields: ['imageUrl', 'imageType']
-      });
-    }
-    
-    // Check if property exists
-    const existingProperty = await db.select({ id: properties.id })
-      .from(properties)
-      .where(eq(properties.id, propertyId))
-      .limit(1);
-      
-    if (existingProperty.length === 0) {
-      return res.status(404).json({ error: 'Property not found' });
-    }
-    
-    // If this image is primary, update any existing primary images
-    if (isPrimary) {
-      await db.update(propertyImages)
-        .set({ isPrimary: false })
-        .where(
-          and(
-            eq(propertyImages.propertyId, propertyId),
-            eq(propertyImages.isPrimary, true)
-          )
-        );
-    }
-    
-    // Add new image
-    const newImage = await db.insert(propertyImages)
-      .values({
-        propertyId,
-        imageUrl,
-        imageType,
-        caption,
-        isPrimary,
-        uploadedBy: req.user.id,
-        uploadedAt: new Date()
-      })
-      .returning();
-    
-    res.status(201).json(newImage[0]);
-  } catch (error) {
-    console.error('Error uploading image:', error);
-    res.status(500).json({ error: 'Failed to upload property image' });
-  }
-});
-
-// Get property images
-app.get('/properties/:id/images', async (req, res) => {
-  try {
-    const propertyId = Number(req.params.id);
-    
-    // Check if property exists
-    const existingProperty = await db.select({ id: properties.id })
-      .from(properties)
-      .where(eq(properties.id, propertyId))
-      .limit(1);
-      
-    if (existingProperty.length === 0) {
-      return res.status(404).json({ error: 'Property not found' });
-    }
-    
-    // Get property images
-    const images = await db.select()
-      .from(propertyImages)
-      .where(eq(propertyImages.propertyId, propertyId))
-      .orderBy(desc(propertyImages.isPrimary), asc(propertyImages.uploadedAt));
-    
-    res.json(images);
-  } catch (error) {
-    console.error('Error fetching property images:', error);
-    res.status(500).json({ error: 'Failed to fetch property images' });
-  }
-});
-
-// Update property image
-app.put('/properties/:propertyId/images/:id', async (req, res) => {
-  try {
-    const propertyId = Number(req.params.propertyId);
-    const imageId = Number(req.params.id);
-    const { imageUrl, imageType, caption, isPrimary } = req.body;
-    
-    // Check if property and image exist
-    const existingImage = await db.select()
-      .from(propertyImages)
-      .where(
-        and(
-          eq(propertyImages.id, imageId),
-          eq(propertyImages.propertyId, propertyId)
-        )
-      )
-      .limit(1);
-      
-    if (existingImage.length === 0) {
-      return res.status(404).json({ error: 'Property image not found' });
-    }
-    
-    // If this image is being set as primary, update any existing primary images
-    if (isPrimary && !existingImage[0].isPrimary) {
-      await db.update(propertyImages)
-        .set({ isPrimary: false })
-        .where(
-          and(
-            eq(propertyImages.propertyId, propertyId),
-            eq(propertyImages.isPrimary, true)
-          )
-        );
-    }
-    
-    // Update image
-    const updatedImage = await db.update(propertyImages)
-      .set({
-        imageUrl,
-        imageType,
-        caption,
-        isPrimary
-      })
-      .where(eq(propertyImages.id, imageId))
-      .returning();
-    
-    res.json(updatedImage[0]);
-  } catch (error) {
-    console.error('Error updating property image:', error);
-    res.status(500).json({ error: 'Failed to update property image' });
-  }
-});
-
-// Delete property image
-app.delete('/properties/:propertyId/images/:id', async (req, res) => {
-  try {
-    const propertyId = Number(req.params.propertyId);
-    const imageId = Number(req.params.id);
-    
-    // Check if property and image exist
-    const existingImage = await db.select()
-      .from(propertyImages)
-      .where(
-        and(
-          eq(propertyImages.id, imageId),
-          eq(propertyImages.propertyId, propertyId)
-        )
-      )
-      .limit(1);
-      
-    if (existingImage.length === 0) {
-      return res.status(404).json({ error: 'Property image not found' });
-    }
-    
-    // Delete image
-    await db.delete(propertyImages)
-      .where(eq(propertyImages.id, imageId));
-    
-    // If this was a primary image, set a new primary image if available
-    if (existingImage[0].isPrimary) {
-      const remainingImages = await db.select()
-        .from(propertyImages)
-        .where(eq(propertyImages.propertyId, propertyId))
-        .orderBy(asc(propertyImages.uploadedAt))
-        .limit(1);
-      
-      if (remainingImages.length > 0) {
-        await db.update(propertyImages)
-          .set({ isPrimary: true })
-          .where(eq(propertyImages.id, remainingImages[0].id));
-      }
-    }
-    
-    res.json({ message: 'Property image deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting property image:', error);
-    res.status(500).json({ error: 'Failed to delete property image' });
-  }
-});
-
-// Search properties
-app.get('/properties/search', async (req, res) => {
-  try {
-    const { q, limit = 10 } = req.query;
-    
-    if (!q || q.length < 2) {
-      return res.status(400).json({ 
-        error: 'Search query must be at least 2 characters long',
-      });
-    }
-    
-    // Create search query
-    const searchQuery = db.select()
-      .from(properties)
-      .where(
-        sql`(${properties.address} ILIKE ${`%${q}%`} OR 
-             ${properties.city} ILIKE ${`%${q}%`} OR
-             ${properties.county} ILIKE ${`%${q}%`} OR
-             ${properties.zipCode} ILIKE ${`%${q}%`} OR
-             ${properties.description} ILIKE ${`%${q}%`})`
-      )
-      .limit(Number(limit));
-    
-    // Execute query
-    const results = await searchQuery;
-    
-    res.json(results);
-  } catch (error) {
-    console.error('Error searching properties:', error);
-    res.status(500).json({ error: 'Failed to search properties' });
-  }
-});
-
-// Get property statistics
-app.get('/properties/stats', async (req, res) => {
-  try {
-    // Count properties by type
-    const propertiesByType = await db
-      .select({
-        type: properties.propertyType,
-        count: sql`count(*)`.as('count')
-      })
-      .from(properties)
-      .groupBy(properties.propertyType);
-      
-    // Count properties by state
-    const propertiesByState = await db
-      .select({
-        state: properties.state,
-        count: sql`count(*)`.as('count')
-      })
-      .from(properties)
-      .groupBy(properties.state)
-      .orderBy(desc(sql`count(*)`))
-      .limit(10);
-      
-    // Get total property count
-    const totalPropertiesResult = await db
-      .select({ count: sql`count(*)`.as('count') })
-      .from(properties);
-      
-    // Get average bedrooms and bathrooms
-    const averagesResult = await db
-      .select({
-        avgBedrooms: sql`avg(${properties.bedrooms})`.as('avg_bedrooms'),
-        avgBathrooms: sql`avg(${properties.bathrooms})`.as('avg_bathrooms')
-      })
-      .from(properties);
-      
-    // Get newest properties (last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    const newPropertiesCount = await db
-      .select({ count: sql`count(*)`.as('count') })
-      .from(properties)
-      .where(sql`${properties.createdAt} >= ${thirtyDaysAgo}`);
-      
-    res.json({
-      totalProperties: Number(totalPropertiesResult[0].count),
-      newProperties: Number(newPropertiesCount[0].count),
-      averageBedrooms: Number(averagesResult[0].avgBedrooms || 0).toFixed(1),
-      averageBathrooms: Number(averagesResult[0].avgBathrooms || 0).toFixed(1),
-      byType: propertiesByType.map(item => ({ ...item, count: Number(item.count) })),
-      byState: propertiesByState.map(item => ({ ...item, count: Number(item.count) }))
-    });
-  } catch (error) {
-    console.error('Error fetching property statistics:', error);
-    res.status(500).json({ error: 'Failed to fetch property statistics' });
-  }
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Property Service Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-// Start the server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Property service running on port ${PORT}`);
-});
-
-export default app;
+export default server;
