@@ -72,9 +72,34 @@ const server = http.createServer((req, res) => {
   // Route requests to appropriate services
   let targetUrl = null;
   
+  // Auth routes (handled by User Service)
+  if (path.startsWith('/api/auth')) {
+    if (path === '/api/auth/login') {
+      targetUrl = USER_SERVICE_URL + '/login';
+    }
+    else if (path === '/api/auth/register') {
+      targetUrl = USER_SERVICE_URL + '/register';
+    }
+    else if (path === '/api/auth/me') {
+      targetUrl = USER_SERVICE_URL + '/me';
+    }
+    else if (path === '/api/auth/change-password') {
+      targetUrl = USER_SERVICE_URL + '/change-password';
+    }
+    else if (path === '/api/auth/logout') {
+      targetUrl = USER_SERVICE_URL + '/logout';
+    }
+    else if (path === '/api/auth/refresh-token') {
+      targetUrl = USER_SERVICE_URL + '/refresh-token';
+    }
+    else {
+      // If no specific auth endpoint matched, forward to the user service
+      targetUrl = USER_SERVICE_URL + path.replace('/api/auth', '/auth');
+    }
+  }
   // User service routes
-  if (path.startsWith('/api/users')) {
-    targetUrl = USER_SERVICE_URL + path.replace('/api/users', '');
+  else if (path.startsWith('/api/users')) {
+    targetUrl = USER_SERVICE_URL + path.replace('/api/users', '/users');
   }
   // Property service routes
   else if (path.startsWith('/api/properties')) {
@@ -86,24 +111,19 @@ const server = http.createServer((req, res) => {
   }
   // Analysis service routes
   else if (path.startsWith('/api/analysis')) {
-    targetUrl = ANALYSIS_SERVICE_URL + path.replace('/api/analysis', '');
+    targetUrl = ANALYSIS_SERVICE_URL + path.replace('/api/analysis', '/analysis');
   }
   // Report service routes
   else if (path.startsWith('/api/reports')) {
     targetUrl = REPORT_SERVICE_URL + path.replace('/api/reports', '/reports');
   }
-  // Auth routes
-  else if (path === '/api/auth/login') {
-    targetUrl = USER_SERVICE_URL + '/login';
+  // Generic properties endpoint (just returns all properties)
+  else if (path === '/api/properties') {
+    targetUrl = PROPERTY_SERVICE_URL + '/properties';
   }
-  else if (path === '/api/auth/register') {
-    targetUrl = USER_SERVICE_URL + '/register';
-  }
-  else if (path === '/api/auth/me') {
-    targetUrl = USER_SERVICE_URL + '/me';
-  }
-  else if (path === '/api/auth/change-password') {
-    targetUrl = USER_SERVICE_URL + '/change-password';
+  // Generic reports endpoint (just returns all reports)
+  else if (path === '/api/reports') {
+    targetUrl = REPORT_SERVICE_URL + '/reports';
   }
   
   // If a route match was found, proxy the request

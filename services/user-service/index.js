@@ -370,6 +370,49 @@ app.post('/change-password', authenticate, async (req, res) => {
   }
 });
 
+// Logout (invalidate token on client side)
+app.post('/logout', authenticate, (req, res) => {
+  // In a real implementation, we would blacklist the token
+  // For now, we just return success (client will remove the token)
+  res.json({
+    success: true,
+    message: 'Successfully logged out'
+  });
+});
+
+// Refresh token
+app.post('/refresh-token', authenticate, async (req, res) => {
+  try {
+    // Get current user info
+    const user = await findById(tables.USERS, req.user.id);
+    
+    if (!user || !user.active) {
+      return res.status(401).json({ error: 'User inactive or deleted' });
+    }
+    
+    // Generate new JWT token
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    
+    res.json({
+      token,
+      expiresIn: JWT_EXPIRES_IN
+    });
+  } catch (error) {
+    console.error('Error refreshing token:', error);
+    res.status(500).json({ error: 'Failed to refresh token' });
+  }
+});
+
 // Reset password (admin only)
 app.post('/reset-password/:id', authenticate, authorize(['admin']), async (req, res) => {
   try {

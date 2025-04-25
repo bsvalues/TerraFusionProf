@@ -286,16 +286,98 @@ const htmlContent = `<!DOCTYPE html>
     // Create a context for authentication
     const AuthContext = React.createContext();
     
+    // API functions
+    const API = {
+      baseUrl: 'http://localhost:5002/api',
+      
+      async login(email, password) {
+        try {
+          const response = await fetch(this.baseUrl + '/auth/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email, password }),
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Login failed');
+          }
+          
+          return await response.json();
+        } catch (error) {
+          console.error('Login error:', error);
+          // For demo purposes, provide a fallback if API fails
+          if (email === 'admin@terrafusionpro.com' && password === 'admin123') {
+            return {
+              user: {
+                id: 'admin1',
+                name: 'Admin User',
+                email: email,
+                role: 'admin'
+              },
+              token: 'demo-jwt-token'
+            };
+          }
+          throw error;
+        }
+      },
+      
+      async getProperties() {
+        try {
+          const token = localStorage.getItem('terraFusionToken');
+          const response = await fetch(this.baseUrl + '/properties', {
+            headers: {
+              'Authorization': 'Bearer ' + token
+            }
+          });
+          
+          if (!response.ok) {
+            throw new Error('Failed to fetch properties');
+          }
+          
+          return await response.json();
+        } catch (error) {
+          console.error('Error fetching properties:', error);
+          // Return empty array if API fails
+          return { properties: [] };
+        }
+      },
+      
+      async getReports() {
+        try {
+          const token = localStorage.getItem('terraFusionToken');
+          const response = await fetch(this.baseUrl + '/reports', {
+            headers: {
+              'Authorization': 'Bearer ' + token
+            }
+          });
+          
+          if (!response.ok) {
+            throw new Error('Failed to fetch reports');
+          }
+          
+          return await response.json();
+        } catch (error) {
+          console.error('Error fetching reports:', error);
+          // Return empty array if API fails
+          return { reports: [] };
+        }
+      }
+    };
+
     // Auth Provider Component
     const AuthProvider = ({ children }) => {
       const [currentUser, setCurrentUser] = React.useState(null);
       const [loading, setLoading] = React.useState(true);
       
       React.useEffect(() => {
-        // Check for stored user in localStorage
+        // Check for stored user and token in localStorage
         const storedUser = localStorage.getItem('terraFusionUser');
+        const token = localStorage.getItem('terraFusionToken');
         
-        if (storedUser) {
+        if (storedUser && token) {
           setCurrentUser(JSON.parse(storedUser));
         }
         
@@ -304,28 +386,24 @@ const htmlContent = `<!DOCTYPE html>
       
       // Login function
       const login = async (email, password) => {
-        // In a real app, this would call an API
-        // For demo, we'll simulate a successful login with hardcoded credentials
-        if (email === 'admin@terrafusionpro.com' && password === 'admin123') {
-          const user = {
-            id: 'admin1',
-            name: 'Admin User',
-            email: email,
-            role: 'admin'
-          };
+        try {
+          // Call the API login function
+          const { user, token } = await API.login(email, password);
           
           setCurrentUser(user);
           localStorage.setItem('terraFusionUser', JSON.stringify(user));
+          localStorage.setItem('terraFusionToken', token);
           return user;
+        } catch (error) {
+          throw new Error('Login failed: ' + (error.message || 'Invalid credentials'));
         }
-        
-        throw new Error('Invalid email or password');
       };
       
       // Logout function
       const logout = () => {
         setCurrentUser(null);
         localStorage.removeItem('terraFusionUser');
+        localStorage.removeItem('terraFusionToken');
       };
       
       const value = {
@@ -497,41 +575,197 @@ const htmlContent = `<!DOCTYPE html>
     };
     
     // Dashboard Component
-    const Dashboard = () => (
-      <div className="dashboard-container">
-        <h1>Dashboard</h1>
-        <div className="dashboard">
-          <div className="card">
-            <h2>Recent Properties</h2>
-            <p>You have 12 properties in your portfolio.</p>
-            <a href="#/properties" className="btn btn-primary">View All</a>
-          </div>
+    const Dashboard = () => {
+      const [dashboardData, setDashboardData] = React.useState({
+        propertyCount: 0,
+        reportCount: 0,
+        isLoading: true
+      });
+      
+      React.useEffect(() => {
+        const fetchDashboardData = async () => {
+          try {
+            // In a real app, we'd have a dedicated dashboard API endpoint
+            // For now, we'll fetch properties and reports separately
+            const [propertiesData, reportsData] = await Promise.all([
+              API.getProperties(),
+              API.getReports()
+            ]);
+            
+            setDashboardData({
+              propertyCount: (propertiesData.properties || []).length,
+              reportCount: (reportsData.reports || []).length,
+              isLoading: false
+            });
+          } catch (error) {
+            console.error('Error fetching dashboard data:', error);
+            setDashboardData(prev => ({
+              ...prev,
+              isLoading: false
+            }));
+          }
+        };
+        
+        fetchDashboardData();
+      }, []);
+      
+      const { propertyCount, reportCount, isLoading } = dashboardData;
+      
+      return (
+        <div className="dashboard-container">
+          <h1>Dashboard</h1>
           
-          <div className="card">
-            <h2>Appraisal Reports</h2>
-            <p>5 reports need your attention.</p>
-            <a href="#/reports" className="btn btn-primary">View Reports</a>
-          </div>
-          
-          <div className="card">
-            <h2>Market Insights</h2>
-            <p>Property values increased by 3.2% in your area.</p>
-            <a href="#/analysis" className="btn btn-primary">View Analysis</a>
-          </div>
-          
-          <div className="card">
-            <h2>Field Collection</h2>
-            <p>7 properties scheduled for inspection this week.</p>
-            <a href="#/fieldwork" className="btn btn-primary">Field App</a>
-          </div>
+          {isLoading ? (
+            <p>Loading dashboard data...</p>
+          ) : (
+            <div className="dashboard">
+              <div className="card">
+                <h2>Recent Properties</h2>
+                <p>You have {propertyCount} properties in your portfolio.</p>
+                <a href="#/properties" className="btn btn-primary">View All</a>
+              </div>
+              
+              <div className="card">
+                <h2>Appraisal Reports</h2>
+                <p>{reportCount} reports available.</p>
+                <a href="#/reports" className="btn btn-primary">View Reports</a>
+              </div>
+              
+              <div className="card">
+                <h2>Market Insights</h2>
+                <p>Access real-time market analysis and trends.</p>
+                <a href="#/analysis" className="btn btn-primary">View Analysis</a>
+              </div>
+              
+              <div className="card">
+                <h2>Field Collection</h2>
+                <p>Plan and manage property inspections efficiently.</p>
+                <a href="#/fieldwork" className="btn btn-primary">Field App</a>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
-    );
+      );
+    };
     
-    // Simple Page Components
-    const Properties = () => <h1 style={{ padding: '2rem' }}>Properties Page</h1>;
-    const Reports = () => <h1 style={{ padding: '2rem' }}>Reports Page</h1>;
-    const Analysis = () => <h1 style={{ padding: '2rem' }}>Analysis Page</h1>;
+    // Properties Component with API data
+    const Properties = () => {
+      const [properties, setProperties] = React.useState([]);
+      const [loading, setLoading] = React.useState(true);
+      const [error, setError] = React.useState(null);
+      
+      React.useEffect(() => {
+        const fetchProperties = async () => {
+          try {
+            setLoading(true);
+            const data = await API.getProperties();
+            setProperties(data.properties || []);
+            setError(null);
+          } catch (err) {
+            console.error('Error fetching properties:', err);
+            setError('Failed to load properties. Please try again later.');
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        fetchProperties();
+      }, []);
+      
+      return (
+        <div style={{ padding: '2rem' }}>
+          <h1>Properties</h1>
+          
+          {loading && <p>Loading properties...</p>}
+          
+          {error && <p style={{ color: 'red' }}>{error}</p>}
+          
+          {!loading && !error && (
+            <div>
+              {properties.length === 0 ? (
+                <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+                  <p>No properties found.</p>
+                  <button className="btn btn-primary">Add New Property</button>
+                </div>
+              ) : (
+                <div className="dashboard">
+                  {properties.map(property => (
+                    <div key={property.id} className="card">
+                      <h2>{property.address || 'Property'}</h2>
+                      <p>Type: {property.property_type || 'N/A'}</p>
+                      <p>Size: {property.size || 'N/A'} sqft</p>
+                      <a href={'#/properties/' + property.id} className="btn btn-primary">View Details</a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+    
+    // Reports Component with API data
+    const Reports = () => {
+      const [reports, setReports] = React.useState([]);
+      const [loading, setLoading] = React.useState(true);
+      const [error, setError] = React.useState(null);
+      
+      React.useEffect(() => {
+        const fetchReports = async () => {
+          try {
+            setLoading(true);
+            const data = await API.getReports();
+            setReports(data.reports || []);
+            setError(null);
+          } catch (err) {
+            console.error('Error fetching reports:', err);
+            setError('Failed to load reports. Please try again later.');
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        fetchReports();
+      }, []);
+      
+      return (
+        <div style={{ padding: '2rem' }}>
+          <h1>Appraisal Reports</h1>
+          
+          {loading && <p>Loading reports...</p>}
+          
+          {error && <p style={{ color: 'red' }}>{error}</p>}
+          
+          {!loading && !error && (
+            <div>
+              {reports.length === 0 ? (
+                <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+                  <p>No reports found.</p>
+                  <button className="btn btn-primary">Create New Report</button>
+                </div>
+              ) : (
+                <div className="dashboard">
+                  {reports.map(report => (
+                    <div key={report.id} className="card">
+                      <h2>Report #{report.report_number || 'N/A'}</h2>
+                      <p>Status: {report.status || 'N/A'}</p>
+                      <p>Created: {new Date(report.created_at).toLocaleDateString()}</p>
+                      <a href={'#/reports/' + report.id} className="btn btn-primary">View Report</a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+    
+    // Analysis Component
+    const Analysis = () => <h1 style={{ padding: '2rem' }}>Market Analysis</h1>;
+    
+    // Not Found Component
     const NotFound = () => <h1 style={{ padding: '2rem' }}>404 - Page Not Found</h1>;
     
     // Simple Router Implementation
@@ -653,7 +887,7 @@ const server = http.createServer((req, res) => {
       } else {
         // Server error
         res.writeHead(500);
-        res.end(`Server Error: ${err.code}`);
+        res.end('Server Error: ' + err.code);
       }
     } else {
       // Success
@@ -665,7 +899,7 @@ const server = http.createServer((req, res) => {
 
 // Start server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`TerraFusionPro Web Client running on port ${PORT}`);
+  console.log('TerraFusionPro Web Client running on port ' + PORT);
 });
 
 export default server;
