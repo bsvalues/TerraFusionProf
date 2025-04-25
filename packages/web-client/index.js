@@ -1,5 +1,5 @@
 /**
- * Very Basic TerraFusionPro Web Client
+ * Absolutely Basic TerraFusionPro Web Client 
  */
 
 import http from 'http';
@@ -7,7 +7,7 @@ import http from 'http';
 // Configure server
 const PORT = process.env.WEB_CLIENT_PORT || 5000;
 
-// Basic HTML
+// HTML as a regular string (NOT a template literal)
 const html = '<!DOCTYPE html>' +
 '<html>' +
 '<head>' +
@@ -56,7 +56,7 @@ const server = http.createServer((req, res) => {
 
 // Start the server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('Basic web client running on port ' + PORT);
+  console.log('Absolutely basic web client running on port ' + PORT);
 });
 
 export default server;
