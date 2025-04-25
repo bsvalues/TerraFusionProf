@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: terrafusionpro
+  labels:
+    name: terrafusionpro
+    part-of: terrafusionpro
