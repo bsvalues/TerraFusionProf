@@ -1,0 +1,19 @@
+{
+  "name": "@terrafusionpro/api",
+  "version": "1.0.0",
+  "description": "TerraFusionPro API Gateway",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "api",
+    "gateway",
+    "real-estate",
+    "appraisal"
+  ],
+  "author": "TerraFusionPro Team",
+  "license": "UNLICENSED"
+}

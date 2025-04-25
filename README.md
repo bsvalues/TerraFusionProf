@@ -1,45 +1,141 @@
-# TerraFusionPro
+# TerraFusionPro: Next-Generation Real Estate Appraisal Platform
 
-A next-generation real estate appraisal platform combining field data collection, geospatial analysis, and AI-powered valuation tools.
-
-![TerraFusionPro](./assets/images/terrafusion-logo.svg)
+TerraFusionPro is a comprehensive real estate appraisal platform combining field data collection, geospatial analysis, and AI-powered valuation tools.
 
 ## Overview
 
-TerraFusionPro is a modern, cloud-native appraisal platform designed to transform real estate valuation workflows. Built on a microservices architecture, it provides seamless integration between field data collection, property analysis, and report generation - all enhanced with powerful AI capabilities.
+This monorepo structure contains all the microservices, web clients, and shared libraries that make up the TerraFusionPro platform. It is designed for collaborative development and streamlined DevOps processes.
 
-### Key Features
+### Platform Components
 
-- **Cross-Platform Field Collection**: Intuitive mobile apps for property inspections with offline capability
-- **Advanced Geospatial Analysis**: Intelligent comparable selection with spatial context
-- **AI-Powered Workflows**: Autonomous agents for data validation, analysis, and quality control
-- **Real-Time Collaboration**: Multi-user editing with role-based permissions
-- **Comprehensive Reporting**: USPAP-compliant reports with automated generation
-- **Extensible Integration**: Open API architecture for seamless third-party connectivity
+- **Web Client**: Browser-based dashboard for appraisers, reviewers, and clients
+- **API Gateway**: Central entry point for all API requests with authentication
+- **Microservices**:
+  - User Service: Authentication and user management
+  - Property Service: Property data management
+  - Form Service: Dynamic form creation and submissions
+  - Analysis Service: Valuations and comparable property analysis
+  - Report Service: Report generation and management
 
-## Project Architecture
+### Tech Stack
 
-TerraFusionPro consists of several integrated components:
-
-- **Field Collection Module**: Mobile-first data capture system
-- **Property Analysis Engine**: Valuation models and comparable analysis
-- **Reporting System**: Template-driven, compliant report generation
-- **Collaboration Framework**: Real-time multi-user capabilities
-- **AI Orchestration Layer**: Intelligent agent coordination
-- **API Gateway**: Unified access point for all services
+- **Backend**: Node.js with Express
+- **Database**: PostgreSQL with Drizzle ORM
+- **Authentication**: JWT-based auth
+- **API Architecture**: RESTful microservices
+- **Infrastructure**: Docker, Kubernetes (optional)
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+
-- Docker and Docker Compose
-- MongoDB 5.0+
-- PostgreSQL 14+
+- Node.js 20 or higher
+- PostgreSQL 14 or higher
+- Docker (optional for containerized development)
 
-### Installation
+### Setup Instructions
 
-1. Clone the repository:
+1. **Clone the repository**
+
 ```bash
-git clone https://github.com/your-organization/TerraFusionPro.git
-cd TerraFusionPro
+git clone https://github.com/yourusername/terrafusionpro.git
+cd terrafusionpro
+```
+
+2. **Install dependencies**
+
+```bash
+npm install
+```
+
+3. **Set up environment variables**
+
+Create a `.env` file in the root directory with the following variables:
+
+```
+DATABASE_URL=postgres://username:password@localhost:5432/terrafusionpro
+JWT_SECRET=your-jwt-secret-key
+```
+
+4. **Initialize the database**
+
+```bash
+npm run db:push
+```
+
+5. **Start the services**
+
+```bash
+# Start the web client
+npm run start
+
+# Start the API gateway (in a separate terminal)
+npm run start:api
+
+# To start individual services
+npm run start:property
+npm run start:user
+npm run start:form
+```
+
+### Default Credentials
+
+- **Admin User**:
+  - Email: `admin@terrafusionpro.com`
+  - Password: `admin123`
+
+## Project Structure
+
+```
+terrafusionpro/
+├── packages/
+│   ├── api/             # API Gateway
+│   ├── web-client/      # Web dashboard
+│   ├── field-app/       # Mobile field data collection app
+│   ├── shared/          # Shared utilities and schemas
+│   │   ├── schema/      # Database schema definitions
+│   │   ├── migrations/  # Database migrations
+│   │   └── scripts/     # Utility scripts
+│   └── agents/          # AI processing agents
+├── services/
+│   ├── user-service/    # User authentication and management
+│   ├── property-service/ # Property data management
+│   ├── form-service/    # Form creation and management
+│   ├── analysis-service/ # Value analysis and comparisons
+│   └── report-service/  # Report generation
+├── infrastructure/      # Kubernetes, Docker configurations
+├── docs/                # Documentation
+└── tests/               # Tests
+```
+
+## Key Features
+
+- **Comprehensive Property Management**: Detailed property records with images, features, and location data
+- **Dynamic Forms**: Customizable form templates for various property types
+- **Comparable Property Analysis**: AI-powered comparable selection and adjustments
+- **Market Analysis**: Trend analysis and value estimates
+- **Report Generation**: Customizable report formats and templates
+
+## Development Workflow
+
+### Adding a New Feature
+
+1. Create a feature branch from `main`
+2. Implement your changes
+3. Write tests
+4. Submit a pull request
+
+### Database Migrations
+
+To make schema changes:
+
+1. Update the schema in `packages/shared/schema/index.js`
+2. Run `npm run db:push` to apply the changes
+
+## License
+
+Proprietary - All rights reserved
+
+---
+
+© 2025 TerraFusionPro

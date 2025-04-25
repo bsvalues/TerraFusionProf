@@ -6,428 +6,698 @@
  */
 
 import express from 'express';
-import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { db, schema, initializeDatabase } from '../../packages/shared/storage.js';
-import { eq } from 'drizzle-orm';
+import cors from 'cors';
+import helmet from 'helmet';
+import { fileURLToPath } from 'url';
+import path from 'path';
+import { db } from '../../packages/shared/storage.js';
+import { users } from '../../packages/shared/schema/index.js';
+import { eq, and, desc, sql, like } from 'drizzle-orm';
+
+// Get the current directory path
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 5002;
+const PORT = process.env.USER_SERVICE_PORT || 5000;
 
-// JWT Secret for authentication
-const JWT_SECRET = process.env.JWT_SECRET || 'development-jwt-secret';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+// JWT Secret
+const JWT_SECRET = process.env.JWT_SECRET || 'terrafusionpro-secret-key';
+const JWT_EXPIRES_IN = '24h';
 
 // Middleware
+app.use(helmet());
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
-app.get('/health', async (req, res) => {
+// Request logging middleware
+const logRequest = (req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+};
+
+// Authentication middleware for protected routes
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication token required' });
+  }
+  
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    
+    req.user = user;
+    next();
+  });
+};
+
+// Role-based access control middleware
+const authorizeRoles = (roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ 
+        error: 'Insufficient permissions',
+        requiredRoles: roles,
+        userRole: req.user.role
+      });
+    }
+    
+    next();
+  };
+};
+
+// Apply global middleware
+app.use(logRequest);
+
+// Health check endpoint (doesn't require authentication)
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: 'user-service',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// User Login
+app.post('/auth/login', async (req, res) => {
   try {
-    const dbStatus = await initializeDatabase();
+    const { email, password } = req.body;
+    
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        requiredFields: ['email', 'password']
+      });
+    }
+    
+    // Find user by email
+    const userResult = await db.select()
+      .from(users)
+      .where(eq(users.email, email.toLowerCase()))
+      .limit(1);
+    
+    if (userResult.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const user = userResult[0];
+    
+    // Check if user is active
+    if (!user.active) {
+      return res.status(403).json({ error: 'Account is disabled' });
+    }
+    
+    // Verify password
+    const passwordValid = await bcrypt.compare(password, user.password);
+    
+    if (!passwordValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Update last login timestamp
+    await db.update(users)
+      .set({ lastLogin: new Date() })
+      .where(eq(users.id, user.id));
+    
+    // Generate JWT token
+    const token = jwt.sign({ 
+      id: user.id,
+      email: user.email,
+      role: user.role 
+    }, JWT_SECRET, { 
+      expiresIn: JWT_EXPIRES_IN 
+    });
+    
+    // Don't return password in response
+    const { password: _, ...userWithoutPassword } = user;
     
     res.json({
-      service: 'user-service',
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      database: dbStatus ? 'connected' : 'disconnected'
+      user: userWithoutPassword,
+      token,
+      expiresIn: JWT_EXPIRES_IN
     });
   } catch (error) {
-    res.status(500).json({
-      service: 'user-service',
-      status: 'unhealthy',
-      error: error.message
-    });
+    console.error('Error during login:', error);
+    res.status(500).json({ error: 'Failed to authenticate user' });
   }
 });
 
-// Register new user
-app.post('/auth/register', async (req, res) => {
+// Register new user (admin-only operation)
+app.post('/users', authenticateToken, authorizeRoles(['admin']), async (req, res) => {
   try {
-    const { email, password, firstName, lastName, role = 'appraiser', organization, phone } = req.body;
+    const { 
+      email, 
+      password, 
+      firstName, 
+      lastName, 
+      role = 'appraiser',
+      company,
+      phone,
+      avatar,
+      active = true
+    } = req.body;
     
-    // Basic validation
+    // Validate required fields
     if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ error: 'Missing required registration fields' });
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        requiredFields: ['email', 'password', 'firstName', 'lastName']
+      });
     }
     
-    // Check if user already exists
-    const existingUser = await db.select()
-      .from(schema.users)
-      .where(eq(schema.users.email, email));
+    // Check if user with email already exists
+    const existingUser = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email.toLowerCase()))
+      .limit(1);
     
     if (existingUser.length > 0) {
-      return res.status(409).json({ error: 'User already exists with this email' });
+      return res.status(409).json({ error: 'User with this email already exists' });
     }
     
     // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(password, 10);
     
     // Create new user
-    const [newUser] = await db.insert(schema.users)
+    const newUser = await db.insert(users)
       .values({
-        email,
-        passwordHash,
+        email: email.toLowerCase(),
+        password: hashedPassword,
         firstName,
         lastName,
         role,
-        organization,
+        company,
         phone,
-        lastLogin: new Date()
+        avatar,
+        active,
+        createdAt: new Date(),
+        updatedAt: new Date()
       })
-      .returning({
-        id: schema.users.id,
-        uuid: schema.users.uuid,
-        email: schema.users.email,
-        firstName: schema.users.firstName,
-        lastName: schema.users.lastName,
-        role: schema.users.role,
-        organization: schema.users.organization,
-        createdAt: schema.users.createdAt
-      });
+      .returning();
     
-    // Generate JWT
-    const token = jwt.sign(
-      { 
-        id: newUser.id,
-        uuid: newUser.uuid,
-        email: newUser.email,
-        role: newUser.role,
-        name: `${newUser.firstName} ${newUser.lastName}`
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    // Don't return password in response
+    const { password: _, ...userWithoutPassword } = newUser[0];
+    
+    res.status(201).json(userWithoutPassword);
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+// Self-registration (limited role, needs admin approval)
+app.post('/auth/register', async (req, res) => {
+  try {
+    const { 
+      email, 
+      password, 
+      firstName, 
+      lastName, 
+      company,
+      phone
+    } = req.body;
+    
+    // Validate required fields
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        requiredFields: ['email', 'password', 'firstName', 'lastName']
+      });
+    }
+    
+    // Check if user with email already exists
+    const existingUser = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email.toLowerCase()))
+      .limit(1);
+    
+    if (existingUser.length > 0) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
+    
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Create new user (inactive by default, needs admin approval)
+    const newUser = await db.insert(users)
+      .values({
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        firstName,
+        lastName,
+        role: 'client', // Default role for self-registered users
+        company,
+        phone,
+        active: false, // Inactive until approved
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+      .returning();
+    
+    // Don't return password in response
+    const { password: _, ...userWithoutPassword } = newUser[0];
     
     res.status(201).json({
-      message: 'User registered successfully',
-      user: newUser,
-      token
+      ...userWithoutPassword,
+      message: 'Registration successful. Your account is pending approval.'
     });
+    
+    // In a real implementation, this would notify admins of a pending approval
   } catch (error) {
     console.error('Error registering user:', error);
     res.status(500).json({ error: 'Failed to register user' });
   }
 });
 
-// Login user
-app.post('/auth/login', async (req, res) => {
+// Get all users (admin and manager roles)
+app.get('/users', authenticateToken, authorizeRoles(['admin', 'reviewer']), async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { 
+      page = 1, 
+      limit = 10, 
+      sort = 'lastName', 
+      order = 'asc',
+      role,
+      active,
+      search
+    } = req.query;
     
-    // Basic validation
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    const offset = (Number(page) - 1) * Number(limit);
+    
+    // Build query conditions
+    let conditions = [];
+    
+    if (role) {
+      conditions.push(eq(users.role, role));
     }
     
-    // Find user by email
-    const [user] = await db.select()
-      .from(schema.users)
-      .where(eq(schema.users.email, email));
-    
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    if (active !== undefined) {
+      conditions.push(eq(users.active, active === 'true'));
     }
     
-    // Check password
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
-    
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    if (search) {
+      conditions.push(
+        sql`(${users.firstName} ILIKE ${`%${search}%`} OR 
+             ${users.lastName} ILIKE ${`%${search}%`} OR
+             ${users.email} ILIKE ${`%${search}%`} OR
+             ${users.company} ILIKE ${`%${search}%`})`
+      );
     }
     
-    // Update last login
-    await db.update(schema.users)
-      .set({ lastLogin: new Date() })
-      .where(eq(schema.users.id, user.id));
+    // Create query
+    let query = db.select({
+      id: users.id,
+      email: users.email,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      role: users.role,
+      company: users.company,
+      phone: users.phone,
+      avatar: users.avatar,
+      active: users.active,
+      lastLogin: users.lastLogin,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt
+    })
+    .from(users);
     
-    // Generate JWT
-    const token = jwt.sign(
-      { 
-        id: user.id,
-        uuid: user.uuid,
-        email: user.email,
-        role: user.role,
-        name: `${user.firstName} ${user.lastName}`
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    // Add conditions if any
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+    
+    // Add sorting
+    if (order.toLowerCase() === 'desc') {
+      query = query.orderBy(desc(users[sort]));
+    } else {
+      query = query.orderBy(users[sort]);
+    }
+    
+    // Add pagination
+    query = query.limit(Number(limit)).offset(offset);
+    
+    // Execute query
+    const results = await query;
+    
+    // Count total records for pagination metadata
+    const countQuery = db.select({ count: sql`count(*)` }).from(users);
+    
+    if (conditions.length > 0) {
+      countQuery.where(and(...conditions));
+    }
+    
+    const countResult = await countQuery;
+    const total = Number(countResult[0].count);
     
     res.json({
-      message: 'Login successful',
-      user: {
-        id: user.id,
-        uuid: user.uuid,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        organization: user.organization
-      },
-      token
+      data: results,
+      pagination: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        pages: Math.ceil(total / Number(limit))
+      }
     });
-  } catch (error) {
-    console.error('Error logging in:', error);
-    res.status(500).json({ error: 'Failed to login' });
-  }
-});
-
-// Get current user profile
-app.get('/users/me', async (req, res) => {
-  try {
-    // Get user ID from auth token
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized - No token provided' });
-    }
-    
-    const token = authHeader.split(' ')[1];
-    
-    try {
-      // Verify token
-      const decoded = jwt.verify(token, JWT_SECRET);
-      
-      // Get user data
-      const [user] = await db.select({
-        id: schema.users.id,
-        uuid: schema.users.uuid,
-        email: schema.users.email,
-        firstName: schema.users.firstName,
-        lastName: schema.users.lastName,
-        role: schema.users.role,
-        organization: schema.users.organization,
-        phone: schema.users.phone,
-        createdAt: schema.users.createdAt,
-        lastLogin: schema.users.lastLogin,
-        preferences: schema.users.preferences
-      })
-      .from(schema.users)
-      .where(eq(schema.users.id, decoded.id));
-      
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-      
-      res.json(user);
-    } catch (error) {
-      return res.status(401).json({ error: 'Unauthorized - Invalid token' });
-    }
-  } catch (error) {
-    console.error('Error fetching user profile:', error);
-    res.status(500).json({ error: 'Failed to fetch user profile' });
-  }
-});
-
-// Get all users (admin only)
-app.get('/users', async (req, res) => {
-  try {
-    // Get user role from auth token
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized - No token provided' });
-    }
-    
-    const token = authHeader.split(' ')[1];
-    
-    try {
-      // Verify token
-      const decoded = jwt.verify(token, JWT_SECRET);
-      
-      // Check if admin
-      if (decoded.role !== 'admin') {
-        return res.status(403).json({ error: 'Forbidden - Admin access required' });
-      }
-      
-      // Query params
-      const { page = 1, limit = 10, role } = req.query;
-      const offset = (page - 1) * limit;
-      
-      // Build query
-      let query = db.select({
-        id: schema.users.id,
-        uuid: schema.users.uuid,
-        email: schema.users.email,
-        firstName: schema.users.firstName,
-        lastName: schema.users.lastName,
-        role: schema.users.role,
-        organization: schema.users.organization,
-        isActive: schema.users.isActive,
-        createdAt: schema.users.createdAt,
-        lastLogin: schema.users.lastLogin
-      })
-      .from(schema.users);
-      
-      // Filter by role if provided
-      if (role) {
-        query = query.where(eq(schema.users.role, role));
-      }
-      
-      // Add pagination
-      query = query.limit(limit).offset(offset);
-      
-      // Execute query
-      const users = await query;
-      
-      // Count total users
-      const countQuery = role
-        ? db.select({ count: db.fn.count() }).from(schema.users).where(eq(schema.users.role, role))
-        : db.select({ count: db.fn.count() }).from(schema.users);
-        
-      const [{ count }] = await countQuery;
-      
-      res.json({
-        data: users,
-        pagination: {
-          total: Number(count),
-          page: Number(page),
-          limit: Number(limit),
-          pages: Math.ceil(Number(count) / limit)
-        }
-      });
-    } catch (error) {
-      return res.status(401).json({ error: 'Unauthorized - Invalid token' });
-    }
   } catch (error) {
     console.error('Error fetching users:', error);
     res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 
-// Update user
-app.put('/users/:id', async (req, res) => {
+// Get user by ID
+app.get('/users/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
-    const userData = req.body;
+    const userId = Number(req.params.id);
     
-    // Get user from auth token
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized - No token provided' });
+    // Check permissions - users can view their own profile or admins can view any
+    if (req.user.id !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized to view this user profile' });
     }
     
-    const token = authHeader.split(' ')[1];
-    
-    try {
-      // Verify token
-      const decoded = jwt.verify(token, JWT_SECRET);
+    // Get user details
+    const userResult = await db.select({
+      id: users.id,
+      email: users.email,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      role: users.role,
+      company: users.company,
+      phone: users.phone,
+      avatar: users.avatar,
+      active: users.active,
+      lastLogin: users.lastLogin,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
       
-      // Check if user is updating their own profile or is an admin
-      if (decoded.id.toString() !== id && decoded.role !== 'admin') {
-        return res.status(403).json({ error: 'Forbidden - Can only update own profile or admin access required' });
-      }
-      
-      // Don't allow role changes unless admin
-      if (userData.role && decoded.role !== 'admin') {
-        delete userData.role;
-      }
-      
-      // Don't update password through this endpoint
-      if (userData.password || userData.passwordHash) {
-        delete userData.password;
-        delete userData.passwordHash;
-      }
-      
-      // Update user
-      const [updatedUser] = await db.update(schema.users)
-        .set({
-          ...userData,
-          updatedAt: new Date()
-        })
-        .where(eq(schema.users.id, id))
-        .returning({
-          id: schema.users.id,
-          uuid: schema.users.uuid,
-          email: schema.users.email,
-          firstName: schema.users.firstName,
-          lastName: schema.users.lastName,
-          role: schema.users.role,
-          organization: schema.users.organization,
-          phone: schema.users.phone,
-          isActive: schema.users.isActive,
-          updatedAt: schema.users.updatedAt
-        });
-      
-      if (!updatedUser) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-      
-      res.json(updatedUser);
-    } catch (error) {
-      return res.status(401).json({ error: 'Unauthorized - Invalid token' });
+    if (userResult.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
     }
+    
+    res.json(userResult[0]);
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Failed to fetch user details' });
+  }
+});
+
+// Update user profile
+app.put('/users/:id', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    
+    // Check for permission - users can only update their own profile unless admin
+    const isSelfUpdate = req.user.id === userId;
+    const isAdmin = req.user.role === 'admin';
+    
+    if (!isSelfUpdate && !isAdmin) {
+      return res.status(403).json({ error: 'Unauthorized to update this user profile' });
+    }
+    
+    const { 
+      email, 
+      password, 
+      firstName, 
+      lastName, 
+      role, 
+      company,
+      phone,
+      avatar,
+      active
+    } = req.body;
+    
+    // Check if user exists
+    const existingUser = await db.select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+      
+    if (existingUser.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Create update object (only include fields that are provided)
+    const updates = {};
+    
+    if (email) {
+      // Only admins can change email
+      if (!isAdmin && email !== existingUser[0].email) {
+        return res.status(403).json({ error: 'Only administrators can change email addresses' });
+      }
+      updates.email = email.toLowerCase();
+    }
+    
+    if (password) {
+      updates.password = await bcrypt.hash(password, 10);
+    }
+    
+    if (firstName) updates.firstName = firstName;
+    if (lastName) updates.lastName = lastName;
+    
+    if (role) {
+      // Only admins can change roles
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Only administrators can change user roles' });
+      }
+      updates.role = role;
+    }
+    
+    if (company) updates.company = company;
+    if (phone) updates.phone = phone;
+    if (avatar) updates.avatar = avatar;
+    
+    if (active !== undefined) {
+      // Only admins can change active status
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Only administrators can change account status' });
+      }
+      updates.active = active;
+    }
+    
+    // Update timestamp
+    updates.updatedAt = new Date();
+    
+    // Update user
+    const updatedUser = await db.update(users)
+      .set(updates)
+      .where(eq(users.id, userId))
+      .returning();
+    
+    // Don't return password in response
+    const { password: _, ...userWithoutPassword } = updatedUser[0];
+    
+    res.json(userWithoutPassword);
   } catch (error) {
     console.error('Error updating user:', error);
     res.status(500).json({ error: 'Failed to update user' });
   }
 });
 
+// Delete user (admin only)
+app.delete('/users/:id', authenticateToken, authorizeRoles(['admin']), async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    
+    // Prevent deleting self
+    if (req.user.id === userId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+    
+    // Check if user exists
+    const existingUser = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+      
+    if (existingUser.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Delete user
+    await db.delete(users)
+      .where(eq(users.id, userId));
+    
+    res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// Verify authentication token
+app.get('/auth/verify', authenticateToken, async (req, res) => {
+  try {
+    // Get current user details
+    const userResult = await db.select({
+      id: users.id,
+      email: users.email,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      role: users.role,
+      company: users.company,
+      phone: users.phone,
+      avatar: users.avatar,
+      active: users.active,
+      lastLogin: users.lastLogin
+    })
+    .from(users)
+    .where(eq(users.id, req.user.id))
+    .limit(1);
+    
+    if (userResult.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Check if user is still active
+    if (!userResult[0].active) {
+      return res.status(403).json({ error: 'Account is disabled' });
+    }
+    
+    res.json({
+      user: userResult[0],
+      token: req.headers.authorization.split(' ')[1]
+    });
+  } catch (error) {
+    console.error('Error verifying token:', error);
+    res.status(500).json({ error: 'Failed to verify authentication' });
+  }
+});
+
 // Change password
-app.post('/auth/change-password', async (req, res) => {
+app.post('/auth/change-password', authenticateToken, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     
-    // Basic validation
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'Current password and new password are required' });
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        requiredFields: ['currentPassword', 'newPassword']
+      });
     }
     
-    // Get user from auth token
-    const authHeader = req.headers.authorization;
+    // Get user with password
+    const userResult = await db.select()
+      .from(users)
+      .where(eq(users.id, req.user.id))
+      .limit(1);
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized - No token provided' });
+    if (userResult.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
     }
     
-    const token = authHeader.split(' ')[1];
+    const user = userResult[0];
     
-    try {
-      // Verify token
-      const decoded = jwt.verify(token, JWT_SECRET);
-      
-      // Get user with password hash
-      const [user] = await db.select()
-        .from(schema.users)
-        .where(eq(schema.users.id, decoded.id));
-      
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-      
-      // Verify current password
-      const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
-      
-      if (!isMatch) {
-        return res.status(401).json({ error: 'Current password is incorrect' });
-      }
-      
-      // Hash new password
-      const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash(newPassword, salt);
-      
-      // Update password
-      await db.update(schema.users)
-        .set({
-          passwordHash,
-          updatedAt: new Date()
-        })
-        .where(eq(schema.users.id, decoded.id));
-      
-      res.json({ message: 'Password updated successfully' });
-    } catch (error) {
-      return res.status(401).json({ error: 'Unauthorized - Invalid token' });
+    // Verify current password
+    const passwordValid = await bcrypt.compare(currentPassword, user.password);
+    
+    if (!passwordValid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
     }
+    
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Update password
+    await db.update(users)
+      .set({ 
+        password: hashedPassword,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, req.user.id));
+    
+    res.json({ message: 'Password changed successfully' });
   } catch (error) {
     console.error('Error changing password:', error);
     res.status(500).json({ error: 'Failed to change password' });
   }
+});
+
+// Get user statistics
+app.get('/users/stats', authenticateToken, authorizeRoles(['admin']), async (req, res) => {
+  try {
+    // Count users by role
+    const usersByRole = await db
+      .select({
+        role: users.role,
+        count: sql`count(*)`.as('count')
+      })
+      .from(users)
+      .groupBy(users.role);
+      
+    // Count active vs inactive users
+    const usersByStatus = await db
+      .select({
+        active: users.active,
+        count: sql`count(*)`.as('count')
+      })
+      .from(users)
+      .groupBy(users.active);
+      
+    // Get total user count
+    const totalUsersResult = await db
+      .select({ count: sql`count(*)`.as('count') })
+      .from(users);
+      
+    // Get recently active users count (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const recentlyActiveCount = await db
+      .select({ count: sql`count(*)`.as('count') })
+      .from(users)
+      .where(sql`${users.lastLogin} >= ${thirtyDaysAgo}`);
+      
+    // Get new users this month
+    const firstDayOfMonth = new Date();
+    firstDayOfMonth.setDate(1);
+    firstDayOfMonth.setHours(0, 0, 0, 0);
+    
+    const newUsersThisMonth = await db
+      .select({ count: sql`count(*)`.as('count') })
+      .from(users)
+      .where(sql`${users.createdAt} >= ${firstDayOfMonth}`);
+    
+    res.json({
+      totalUsers: Number(totalUsersResult[0].count),
+      recentlyActive: Number(recentlyActiveCount[0].count),
+      newThisMonth: Number(newUsersThisMonth[0].count),
+      byRole: usersByRole.map(item => ({ ...item, count: Number(item.count) })),
+      byStatus: usersByStatus.map(item => ({
+        status: item.active ? 'active' : 'inactive',
+        count: Number(item.count)
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching user statistics:', error);
+    res.status(500).json({ error: 'Failed to fetch user statistics' });
+  }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('User Service Error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // Start the server

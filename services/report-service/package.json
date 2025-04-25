@@ -1,0 +1,20 @@
+{
+  "name": "@terrafusionpro/report-service",
+  "version": "1.0.0",
+  "description": "TerraFusionPro Report Service",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "report",
+    "service",
+    "pdf",
+    "real-estate",
+    "appraisal"
+  ],
+  "author": "TerraFusionPro Team",
+  "license": "UNLICENSED"
+}

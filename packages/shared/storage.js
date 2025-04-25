@@ -5,28 +5,26 @@
  * It's a shared utility used across multiple services in the platform.
  */
 
+import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import pg from 'pg';
 import { schema } from './schema/index.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 
-// Create a PostgreSQL connection pool
+// Get the current directory path
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Database connection configuration
 const { Pool } = pg;
 
-// Database connection configuration from environment variables
-const poolConfig = {
-  connectionString: process.env.DATABASE_URL,
-  // Additional pool configuration
-  max: 10, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000, // How long a client is allowed to remain idle before being closed
-  connectionTimeoutMillis: 5000, // How long to wait for a connection to become available
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-};
+// Create a PostgreSQL pool for database connections
+const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/terrafusionpro';
+const pool = new Pool({ connectionString });
 
-// Create connection pool
-const pool = new Pool(poolConfig);
-
-// Create Drizzle ORM instance with schema
+// Initialize Drizzle ORM with the connection pool and schema
 export const db = drizzle(pool, { schema });
 
 /**
@@ -34,10 +32,11 @@ export const db = drizzle(pool, { schema });
  * @param {string} migrationsFolder - Path to migrations folder
  */
 export const runMigrations = async (migrationsFolder) => {
+  console.log(`Running migrations from ${migrationsFolder}`);
+  
   try {
-    console.log(`Running migrations from ${migrationsFolder}...`);
     await migrate(db, { migrationsFolder });
-    console.log('Migrations complete.');
+    console.log('Migrations completed successfully');
   } catch (error) {
     console.error('Error running migrations:', error);
     throw error;
@@ -48,19 +47,32 @@ export const runMigrations = async (migrationsFolder) => {
  * Initialize the database connection and run health check
  */
 export const initializeDatabase = async () => {
+  console.log('Initializing database connection...');
+  
   try {
-    // Test database connection
-    const testClient = await pool.connect();
-    console.log('Database connection established.');
+    // Perform a simple query to check database connection
+    const client = await pool.connect();
+    try {
+      const result = await client.query('SELECT NOW() as time');
+      console.log(`Database connection established at ${result.rows[0].time}`);
+    } finally {
+      client.release();
+    }
     
-    // Run a simple query to verify connection is working
-    const result = await testClient.query('SELECT NOW()');
-    console.log(`Database health check successful at ${result.rows[0].now}`);
+    // Check if migrations directory exists and has migration files
+    const migrationsDir = path.join(__dirname, 'migrations');
+    if (fs.existsSync(migrationsDir)) {
+      const migrationFiles = fs.readdirSync(migrationsDir).filter(file => file.endsWith('.sql'));
+      
+      if (migrationFiles.length > 0) {
+        console.log(`Found ${migrationFiles.length} migration files`);
+        await runMigrations(migrationsDir);
+      }
+    }
     
-    testClient.release();
     return true;
   } catch (error) {
-    console.error('Database initialization error:', error);
+    console.error('Error initializing database:', error);
     throw error;
   }
 };
@@ -69,31 +81,18 @@ export const initializeDatabase = async () => {
  * Close the database connection pool
  */
 export const closeDatabase = async () => {
+  console.log('Closing database connection pool...');
+  
   try {
     await pool.end();
-    console.log('Database connection pool closed.');
+    console.log('Database connection pool closed');
   } catch (error) {
     console.error('Error closing database connection pool:', error);
     throw error;
   }
 };
 
-// Handle process termination to properly close database connections
-process.on('SIGINT', async () => {
-  console.log('Closing database connections due to application termination');
-  await closeDatabase();
-  process.exit(0);
+// Run database initialization when this module is imported
+initializeDatabase().catch(error => {
+  console.error('Failed to initialize database:', error);
 });
-
-process.on('SIGTERM', async () => {
-  console.log('Closing database connections due to application termination');
-  await closeDatabase();
-  process.exit(0);
-});
-
-export default {
-  db,
-  runMigrations,
-  initializeDatabase,
-  closeDatabase
-};

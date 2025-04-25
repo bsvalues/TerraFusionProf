@@ -1,0 +1,20 @@
+{
+  "name": "@terrafusionpro/form-service",
+  "version": "1.0.0",
+  "description": "TerraFusionPro Form Service",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "form",
+    "service",
+    "data-collection",
+    "real-estate",
+    "appraisal"
+  ],
+  "author": "TerraFusionPro Team",
+  "license": "UNLICENSED"
+}

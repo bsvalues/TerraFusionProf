@@ -1,0 +1,20 @@
+{
+  "name": "@terrafusionpro/analysis-service",
+  "version": "1.0.0",
+  "description": "TerraFusionPro Analysis Service",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "analysis",
+    "service",
+    "valuation",
+    "real-estate",
+    "appraisal"
+  ],
+  "author": "TerraFusionPro Team",
+  "license": "UNLICENSED"
+}

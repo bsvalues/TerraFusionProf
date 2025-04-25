@@ -15,6 +15,10 @@ author = "agent"
 task = "workflow.run"
 args = "TerraFusionPro Web Client"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "API Gateway"
+
 [[workflows.workflow]]
 name = "TerraFusionPro Web Client"
 author = "agent"
@@ -23,6 +27,15 @@ author = "agent"
 task = "shell.exec"
 args = "cd packages/web-client && node index.js"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "API Gateway"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node packages/api/index.js"
+waitForPort = 5002
 
 [deployment]
 run = ["sh", "-c", "cd packages/web-client && node index.js"]
