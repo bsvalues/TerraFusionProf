@@ -103,28 +103,46 @@ const existingServices = [
 const apps = [...externalApps, ...existingServices];
 
 // Function to check if a service is available
-const checkServiceAvailability = (url) => {
+const checkServiceAvailability = async (url) => {
   // Extract hostname and port from the URL
   const serviceUrl = new URL(url);
+  
+  // First check if GraphQL endpoint exists
+  const graphqlAvailable = await checkEndpoint(serviceUrl, '/graphql');
+  if (graphqlAvailable) {
+    return true;
+  }
+  
+  // Fall back to health check if GraphQL endpoint doesn't exist
+  return await checkEndpoint(serviceUrl, '/health');
+};
+
+// Helper function to check a specific endpoint
+const checkEndpoint = (serviceUrl, path) => {
   return new Promise((resolve) => {
     const req = http.request(
       {
         hostname: serviceUrl.hostname,
         port: serviceUrl.port,
-        path: '/health',
+        path: path,
         method: 'GET',
-        timeout: 1000,
+        timeout: 2000, // Increased timeout for more reliability
       },
       (res) => {
         if (res.statusCode === 200) {
           resolve(true);
         } else {
+          console.log(`Service at ${serviceUrl.hostname}:${serviceUrl.port}${path} returned status: ${res.statusCode}`);
           resolve(false);
         }
       }
     );
-    req.on('error', () => resolve(false));
+    req.on('error', (error) => {
+      console.log(`Error checking ${serviceUrl.hostname}:${serviceUrl.port}${path}: ${error.message}`);
+      resolve(false);
+    });
     req.on('timeout', () => {
+      console.log(`Timeout checking ${serviceUrl.hostname}:${serviceUrl.port}${path}`);
       req.destroy();
       resolve(false);
     });

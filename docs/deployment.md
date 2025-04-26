@@ -1,97 +1,227 @@
 # TerraFusionPro Deployment Guide
 
-This document describes the deployment process for the TerraFusionPro platform.
+This guide provides instructions for deploying the TerraFusionPro platform to various environments.
 
-## Prerequisites
+## Table of Contents
 
-- Kubernetes cluster with kubectl configured
-- Node.js v20 or later
-- PostgreSQL database
-- Docker Registry access
-- GitHub access with CI/CD integration
+1. [Architecture Overview](#architecture-overview)
+2. [Deployment Environments](#deployment-environments)
+3. [Deployment Strategies](#deployment-strategies)
+4. [Prerequisites](#prerequisites)
+5. [Deployment Steps](#deployment-steps)
+6. [Verification](#verification)
+7. [Rollback Procedure](#rollback-procedure)
+8. [CI/CD Pipeline](#cicd-pipeline)
+
+## Architecture Overview
+
+TerraFusionPro is a distributed platform with the following components:
+
+### Core Services
+- Web Client: Frontend user interface (Port 5000)
+- API Gateway: Central API for all services (Port 5002)
+- User Service: User management and authentication (Port 5004)
+- Property Service: Property data management (Port 5003)
+- Form Service: Dynamic form creation and management (Port 5005)
+- Analysis Service: Property data analysis and insights (Port 5006)
+- Report Service: Report generation and management (Port 5007)
+- Apollo Federation Gateway: GraphQL API gateway (Port 4000/4001)
+
+### Integrated Applications
+- TerraFusionSync (Port 3001)
+- TerraFusionPro (Port 3002)
+- TerraFlow (Port 3003)
+- TerraMiner (Port 3004)
+- TerraAgent (Port 3005)
+- TerraF (Port 3006)
+- TerraLegislativePulsePub (Port 3007)
+- BCBSCostApp (Port 3008)
+- BCBSGeoAssessmentPro (Port 3009)
+- BCBSLevy (Port 3010)
+- BCBSWebHub (Port 3011)
+- BCBSDataEngine (Port 3012)
+- BCBSPacsMapping (Port 3013)
+- GeoAssessmentPro (Port 3014)
+- BSBCMaster (Port 3015)
+- BSIncomeValuation (Port 3016)
+- TerraFusionMockup (Port 3017)
 
 ## Deployment Environments
 
-The platform can be deployed to the following environments:
+### Local Development
+- Uses Node.js and npm/nx for running services
+- PostgreSQL database
+- Each service runs independently on its assigned port
 
-1. **Local Development** - For local development and testing
-2. **Staging** - For QA and integration testing
-3. **Production** - For live use
+### Staging Environment
+- Kubernetes-based deployment
+- Blue/Green deployment strategy
+- Automated CI/CD pipeline from GitHub Actions
+- Accessible at https://staging.terrafusion.io
 
-## Deployment Process
+### Production Environment
+- Kubernetes-based deployment
+- Blue/Green deployment strategy
+- Manual promotion from Staging after verification
+- Accessible at https://app.terrafusion.io
 
-### Automated Deployment via CI/CD
+## Deployment Strategies
 
-The TerraFusionPro platform uses GitHub Actions for CI/CD. The pipeline is defined in `.github/workflows/ci.yml`.
+### Blue/Green Deployment
 
-When code is pushed to the `main` branch, the following happens:
+TerraFusionPro uses a Blue/Green deployment strategy to minimize downtime and risk:
 
-1. **Build and Test**: All services are built and tested in parallel using a matrix build.
-2. **Smoke Tests**: The platform's core services are started and tested to ensure they're functioning correctly.
-3. **Deployment**: If the build and tests pass, the platform is automatically deployed to staging.
+1. Two identical environments (Blue and Green) are maintained
+2. Only one environment is active at any time
+3. New deployments are made to the inactive environment
+4. After verification, traffic is switched to the new environment
+5. If issues occur, traffic can be immediately switched back
 
-For production deployments, a manual approval is required in the GitHub Actions interface.
+## Prerequisites
 
-### Manual Deployment
+### Tools Required
+- Node.js 20.x or later
+- npm 9.x or later
+- Docker and Docker Compose
+- kubectl (for Kubernetes deployments)
+- Access to container registry
 
-To manually deploy the platform, use the following commands:
+### Environment Configuration
+- Database connection strings
+- API keys and secrets
+- Environment-specific configuration
 
-For staging:
-```
-node scripts/deploy.js staging
-```
+## Deployment Steps
 
-For production:
-```
-node scripts/deploy.js production
-```
+### Local Deployment
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/terrafusionpro.git
+   cd terrafusionpro
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Start the database:
+   ```bash
+   docker-compose up -d postgres
+   ```
+
+4. Start all services:
+   ```bash
+   npm run start-all
+   ```
+
+5. Verify service health:
+   ```bash
+   chmod +x smoke-test.sh
+   ./smoke-test.sh
+   ```
+
+### Kubernetes Deployment
+
+1. Build and push Docker images:
+   ```bash
+   npm run build-images
+   npm run push-images
+   ```
+
+2. Deploy to staging using the automated script:
+   ```bash
+   node scripts/deploy.js --env=staging --strategy=blue-green
+   ```
+
+3. Verify deployment in staging:
+   ```bash
+   kubectl get pods -n terrafusion-staging
+   ```
+
+4. Run smoke tests against staging:
+   ```bash
+   STAGING_URL=https://staging.terrafusion.io ./smoke-test.sh
+   ```
+
+5. If successful, promote to production:
+   ```bash
+   node scripts/deploy.js --env=production --strategy=blue-green --promote-from=staging
+   ```
 
 ## Verification
 
-After deployment, you can run smoke tests to verify that all services are functioning correctly:
+After deployment, verify that all services are running correctly:
 
-```
-bash smoke-test.sh
-```
+1. Check service status:
+   ```bash
+   kubectl get pods -n terrafusion-core
+   ```
 
-## Disaster Recovery
+2. Run smoke tests:
+   ```bash
+   BASE_URL=https://app.terrafusion.io ./smoke-test.sh
+   ```
 
-In case of deployment failures, the deployment script includes a rollback mechanism.
+3. Verify application functionality in the browser:
+   - Open https://app.terrafusion.io
+   - Log in with a test account
+   - Create a test property
+   - Generate a test report
 
-For manual rollback, use:
+## Rollback Procedure
 
-```
-kubectl rollout undo deployment/<service-name> --namespace=<namespace>
-```
+If issues are detected after deployment, perform a rollback:
 
-## Service Health Monitoring
+1. For Blue/Green deployments:
+   ```bash
+   node scripts/deploy.js --env=production --rollback
+   ```
 
-The platform includes health endpoints for all services, which can be monitored using:
+2. For traditional deployments:
+   ```bash
+   kubectl rollout undo deployment/[service-name] -n terrafusion-core
+   ```
 
-```
-bash smoke-test.sh
-```
+3. Verify rollback:
+   ```bash
+   ./smoke-test.sh
+   ```
 
-## Integrated Applications
+## CI/CD Pipeline
 
-The TerraFusionPro platform integrates with multiple applications:
+TerraFusionPro uses GitHub Actions for continuous integration and deployment:
 
-1. TerraFusionSync (port 3001)
-2. TerraFusionPro (port 3002)
-3. TerraFlow (port 3003)
-4. TerraMiner (port 3004)
-5. TerraAgent (port 3005)
-6. TerraF (port 3006)
-7. TerraLegislativePulsePub (port 3007)
-8. BCBSCostApp (port 3008)
-9. BCBSGeoAssessmentPro (port 3009)
-10. BCBSLevy (port 3010)
-11. BCBSWebhub (port 3011)
-12. BCBSDataEngine (port 3012)
-13. BCBSPacsMapping (port 3013)
-14. GeoAssessmentPro (port 3014)
-15. BSBCMaster (port 3015)
-16. BSIncomeValuation (port 3016)
-17. TerraFusionMockup (port 3017)
+1. Pull Request Workflow:
+   - Runs on PR creation and updates
+   - Builds all packages
+   - Runs linting and tests
+   - Reports test coverage
 
-These integrated applications are managed through the API Gateway and Apollo Federation Gateway.
+2. Main Branch Workflow:
+   - Runs on merge to main
+   - Builds and pushes Docker images
+   - Deploys to staging environment
+   - Runs smoke tests
+   - Notifies team of deployment status
+
+3. Release Workflow:
+   - Triggered manually or by tag creation
+   - Promotes staging environment to production
+   - Runs smoke tests against production
+   - Creates release notes
+   - Notifies team of production deployment
+
+### Pipeline Configuration
+
+The CI/CD pipeline is configured in `.github/workflows/ci.yml` and includes:
+
+- Matrix builds for all services
+- Parallel testing
+- Database setup for tests
+- Docker build and push
+- Kubernetes deployment
+- Slack notifications
+
+To view the status of the CI/CD pipeline, visit the GitHub Actions tab in the repository.
