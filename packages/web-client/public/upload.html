@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload Files - TerraFusionPro</title>
+  
+  <!-- Core stylesheets -->
+  <link rel="stylesheet" href="/global.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/layout.css">
+  <link rel="stylesheet" href="/css/file-upload.css">
+  <link rel="stylesheet" href="/css/pages.css">
+  
+  <style>
+    /* Additional styles specific to this page */
+    .header {
+      background-color: #fff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .sidebar {
+      width: 250px;
+      background-color: #1a3a5f;
+      color: #fff;
+      min-height: 100vh;
+    }
+    
+    .app-container {
+      display: flex;
+    }
+    
+    .main-content {
+      flex: 1;
+      padding: 20px;
+      background-color: #f5f7fa;
+      min-height: 100vh;
+    }
+    
+    .dropzone {
+      border: 2px dashed #ccc;
+      border-radius: 4px;
+      padding: 30px;
+      text-align: center;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      margin-bottom: 15px;
+      background-color: #f9f9f9;
+    }
+    
+    .dropzone:hover {
+      border-color: #4a90e2;
+      background-color: #f0f7ff;
+    }
+    
+    .file-list {
+      margin: 15px 0;
+      padding: 10px;
+      background-color: #f5f5f5;
+      border-radius: 4px;
+    }
+    
+    .file-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 10px;
+      background-color: #fff;
+      border-radius: 4px;
+      margin-bottom: 5px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    
+    .upload-progress {
+      margin: 15px 0;
+    }
+    
+    .progress-bar-outer {
+      background-color: #e6e6e6;
+      border-radius: 4px;
+      overflow: hidden;
+      width: 100%;
+      height: 10px;
+    }
+    
+    .progress-bar-inner {
+      height: 100%;
+      background-color: #4a90e2;
+      transition: width 0.3s ease;
+      border-radius: 4px;
+      width: 0%;
+    }
+    
+    .btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background-color: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .btn:hover {
+      background-color: #357ac1;
+    }
+    
+    .btn-secondary {
+      background-color: #f5f5f5;
+      color: #333;
+      border: 1px solid #d9d9d9;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #e6e6e6;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="sidebar">
+      <div style="padding: 20px; font-weight: bold; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        TerraFusionPro
+      </div>
+      <ul style="list-style: none; padding: 0; margin: 0;">
+        <li style="padding: 10px 20px;"><a href="/dashboard" style="color: #fff; text-decoration: none;">Dashboard</a></li>
+        <li style="padding: 10px 20px; background-color: rgba(74, 144, 226, 0.2);"><a href="/upload" style="color: #fff; text-decoration: none;">Upload Files</a></li>
+        <li style="padding: 10px 20px;"><a href="/sync" style="color: #fff; text-decoration: none;">Sync Data</a></li>
+        <li style="padding: 10px 20px;"><a href="/properties" style="color: #fff; text-decoration: none;">Properties</a></li>
+        <li style="padding: 10px 20px;"><a href="/reports" style="color: #fff; text-decoration: none;">Reports</a></li>
+      </ul>
+    </div>
+    
+    <div style="flex: 1; display: flex; flex-direction: column;">
+      <div class="header">
+        <h1 style="margin: 0; font-size: 20px;">TerraFusionPro</h1>
+        <div>
+          <span>John Doe</span>
+        </div>
+      </div>
+      
+      <div class="main-content">
+        <div class="page-header">
+          <h1>Upload Files</h1>
+          <p class="page-description">
+            Upload property data, reports, or other documents to the system.
+          </p>
+        </div>
+
+        <div class="upload-section">
+          <div class="section-header">
+            <h2>Select Upload Type</h2>
+          </div>
+
+          <div class="upload-types">
+            <div class="upload-type-card selected" onclick="selectUploadType(this, 'property')">
+              <div class="card-icon">🏠</div>
+              <h3>Property Data</h3>
+              <p>Upload property information in CSV, JSON, or Excel format.</p>
+            </div>
+            
+            <div class="upload-type-card" onclick="selectUploadType(this, 'report')">
+              <div class="card-icon">📝</div>
+              <h3>Appraisal Reports</h3>
+              <p>Upload finalized appraisal reports in PDF format.</p>
+            </div>
+            
+            <div class="upload-type-card" onclick="selectUploadType(this, 'document')">
+              <div class="card-icon">📄</div>
+              <h3>Supporting Documents</h3>
+              <p>Upload supporting documentation for properties or appraisals.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="upload-content">
+          <div class="file-upload-container">
+            <div class="dropzone" id="dropzone">
+              <div class="dropzone-content">
+                <div class="dropzone-icon">
+                  <svg width="50" height="50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20ZM13 10V7H11V10H8L12 14L16 10H13Z" fill="currentColor"/>
+                  </svg>
+                </div>
+                <div class="dropzone-text">
+                  <p>Drag & drop files here, or click to browse</p>
+                  <p class="dropzone-info">
+                    Accepted file types: CSV, JSON, Excel<br />
+                    Maximum file size: 10MB
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div id="file-list" class="file-list" style="display: none;">
+              <h4>Selected Files:</h4>
+              <ul id="selected-files">
+                <!-- Files will be added here -->
+              </ul>
+            </div>
+            
+            <div id="upload-progress" class="upload-progress" style="display: none;">
+              <div class="progress-container">
+                <div class="progress-bar-outer">
+                  <div class="progress-bar-inner" id="progress-bar"></div>
+                </div>
+              </div>
+              <p id="progress-text">0% Uploaded</p>
+            </div>
+            
+            <div class="upload-actions">
+              <button class="btn" id="upload-button">Upload</button>
+              <button class="btn btn-secondary" id="clear-button" style="display: none;">Clear Files</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Variables to hold state
+    let selectedFiles = [];
+    let uploadType = 'property';
+    
+    // Get DOM elements
+    const dropzone = document.getElementById('dropzone');
+    const fileList = document.getElementById('file-list');
+    const selectedFilesList = document.getElementById('selected-files');
+    const uploadProgress = document.getElementById('upload-progress');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    const uploadButton = document.getElementById('upload-button');
+    const clearButton = document.getElementById('clear-button');
+    
+    // Function to handle file selection
+    function handleFileSelection() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      
+      // Set accepted file types based on upload type
+      if (uploadType === 'property') {
+        input.accept = '.csv,.json,.xlsx,.xls';
+      } else if (uploadType === 'report') {
+        input.accept = '.pdf,.doc,.docx';
+      } else {
+        input.accept = '*'; // All file types
+      }
+      
+      input.onchange = function(e) {
+        if (e.target.files.length > 0) {
+          for (let i = 0; i < e.target.files.length; i++) {
+            selectedFiles.push(e.target.files[i]);
+          }
+          updateFileList();
+        }
+      };
+      
+      input.click();
+    }
+    
+    // Function to update the file list UI
+    function updateFileList() {
+      if (selectedFiles.length > 0) {
+        fileList.style.display = 'block';
+        clearButton.style.display = 'inline-block';
+        selectedFilesList.innerHTML = '';
+        
+        selectedFiles.forEach((file, index) => {
+          const li = document.createElement('li');
+          li.className = 'file-item';
+          
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'file-name';
+          nameSpan.textContent = file.name;
+          
+          const sizeSpan = document.createElement('span');
+          sizeSpan.className = 'file-size';
+          sizeSpan.textContent = formatFileSize(file.size);
+          
+          const removeButton = document.createElement('button');
+          removeButton.innerHTML = '&times;';
+          removeButton.style.border = 'none';
+          removeButton.style.background = 'none';
+          removeButton.style.color = '#ff4d4f';
+          removeButton.style.cursor = 'pointer';
+          removeButton.style.fontSize = '18px';
+          removeButton.onclick = function() {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+          };
+          
+          li.appendChild(nameSpan);
+          li.appendChild(sizeSpan);
+          li.appendChild(removeButton);
+          selectedFilesList.appendChild(li);
+        });
+      } else {
+        fileList.style.display = 'none';
+        clearButton.style.display = 'none';
+      }
+    }
+    
+    // Format file size for display
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '(0 Bytes)';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return '(' + parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i] + ')';
+    }
+    
+    // Simulate file upload
+    function simulateUpload() {
+      if (selectedFiles.length === 0) {
+        alert('Please select files to upload');
+        return;
+      }
+      
+      uploadProgress.style.display = 'block';
+      uploadButton.disabled = true;
+      clearButton.disabled = true;
+      
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += 5;
+        progressBar.style.width = progress + '%';
+        progressText.textContent = progress + '% Uploaded';
+        
+        if (progress >= 100) {
+          clearInterval(interval);
+          
+          setTimeout(() => {
+            // Show success
+            alert('Files uploaded successfully!');
+            
+            // Redirect to sync page
+            window.location.href = '/sync';
+          }, 500);
+        }
+      }, 200);
+    }
+    
+    // Function to select upload type
+    function selectUploadType(element, type) {
+      // Update upload type
+      uploadType = type;
+      
+      // Update UI
+      const cards = document.querySelectorAll('.upload-type-card');
+      cards.forEach(card => {
+        card.classList.remove('selected');
+      });
+      element.classList.add('selected');
+    }
+    
+    // Add event listeners
+    dropzone.addEventListener('click', handleFileSelection);
+    
+    uploadButton.addEventListener('click', simulateUpload);
+    
+    clearButton.addEventListener('click', function() {
+      selectedFiles = [];
+      updateFileList();
+    });
+  </script>
+</body>
+</html>

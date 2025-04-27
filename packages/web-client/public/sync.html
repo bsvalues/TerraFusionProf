@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sync Data - TerraFusionPro</title>
+  
+  <!-- Core stylesheets -->
+  <link rel="stylesheet" href="/global.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/layout.css">
+  <link rel="stylesheet" href="/css/file-upload.css">
+  <link rel="stylesheet" href="/css/pages.css">
+  
+  <style>
+    /* Additional styles specific to this page */
+    .header {
+      background-color: #fff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .sidebar {
+      width: 250px;
+      background-color: #1a3a5f;
+      color: #fff;
+      min-height: 100vh;
+    }
+    
+    .app-container {
+      display: flex;
+    }
+    
+    .main-content {
+      flex: 1;
+      padding: 20px;
+      background-color: #f5f7fa;
+      min-height: 100vh;
+    }
+    
+    .btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background-color: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .btn:hover {
+      background-color: #357ac1;
+    }
+    
+    .btn-secondary {
+      background-color: #f5f5f5;
+      color: #333;
+      border: 1px solid #d9d9d9;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #e6e6e6;
+    }
+    
+    .file-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .file-table th,
+    .file-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .file-table th {
+      font-weight: 500;
+      color: #333;
+      background-color: #f9f9f9;
+    }
+    
+    .sync-progress-container {
+      text-align: center;
+      padding: 30px 0;
+    }
+    
+    .progress-bar-outer {
+      background-color: #e6e6e6;
+      border-radius: 4px;
+      overflow: hidden;
+      width: 100%;
+      height: 20px;
+      margin: 20px 0;
+    }
+    
+    .progress-bar-inner {
+      height: 100%;
+      background-color: #4a90e2;
+      transition: width 0.3s ease;
+      border-radius: 4px;
+      width: 0%;
+    }
+    
+    .sync-results {
+      padding: 20px 0;
+    }
+    
+    .success-banner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 24px;
+      padding: 20px;
+      background-color: #f6ffed;
+      border-radius: 4px;
+      border: 1px solid #b7eb8f;
+    }
+    
+    .success-icon {
+      font-size: 48px;
+      color: #52c41a;
+      margin-bottom: 16px;
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+    
+    .stat-card {
+      padding: 16px;
+      background-color: #f5f7fa;
+      border-radius: 8px;
+      text-align: center;
+    }
+    
+    .stat-card.success {
+      background-color: #f6ffed;
+      border: 1px solid #b7eb8f;
+    }
+    
+    .stat-card.warning {
+      background-color: #fffbe6;
+      border: 1px solid #ffe58f;
+    }
+    
+    .stat-card.error {
+      background-color: #fff2f0;
+      border: 1px solid #ffccc7;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    
+    .stat-label {
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="sidebar">
+      <div style="padding: 20px; font-weight: bold; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        TerraFusionPro
+      </div>
+      <ul style="list-style: none; padding: 0; margin: 0;">
+        <li style="padding: 10px 20px;"><a href="/dashboard" style="color: #fff; text-decoration: none;">Dashboard</a></li>
+        <li style="padding: 10px 20px;"><a href="/upload" style="color: #fff; text-decoration: none;">Upload Files</a></li>
+        <li style="padding: 10px 20px; background-color: rgba(74, 144, 226, 0.2);"><a href="/sync" style="color: #fff; text-decoration: none;">Sync Data</a></li>
+        <li style="padding: 10px 20px;"><a href="/properties" style="color: #fff; text-decoration: none;">Properties</a></li>
+        <li style="padding: 10px 20px;"><a href="/reports" style="color: #fff; text-decoration: none;">Reports</a></li>
+      </ul>
+    </div>
+    
+    <div style="flex: 1; display: flex; flex-direction: column;">
+      <div class="header">
+        <h1 style="margin: 0; font-size: 20px;">TerraFusionPro</h1>
+        <div>
+          <span>John Doe</span>
+        </div>
+      </div>
+      
+      <div class="main-content">
+        <div class="page-header">
+          <h1>Synchronize Data</h1>
+          <p class="page-description">
+            Synchronize your uploaded files with the system database.
+          </p>
+        </div>
+        
+        <div class="sync-container">
+          <div id="initial-view">
+            <div class="section-header">
+              <h2>Files Ready for Synchronization</h2>
+            </div>
+            
+            <div class="file-list-container">
+              <table class="file-table">
+                <thead>
+                  <tr>
+                    <th>File Name</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>properties-data.csv</td>
+                    <td>CSV</td>
+                    <td>2.4 MB</td>
+                    <td>Ready</td>
+                  </tr>
+                  <tr>
+                    <td>appraisal-report-q1.pdf</td>
+                    <td>PDF</td>
+                    <td>1.8 MB</td>
+                    <td>Ready</td>
+                  </tr>
+                  <tr>
+                    <td>market-analysis.xlsx</td>
+                    <td>Excel</td>
+                    <td>3.2 MB</td>
+                    <td>Ready</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            
+            <div class="action-buttons">
+              <button class="btn" id="sync-button">Start Synchronization</button>
+            </div>
+          </div>
+          
+          <div id="sync-progress" class="sync-progress-container" style="display: none;">
+            <h2>Synchronizing Data...</h2>
+            <div class="progress-bar-outer">
+              <div class="progress-bar-inner" id="sync-progress-bar"></div>
+            </div>
+            <p class="sync-status-message">Processing 3 files. Please wait...</p>
+          </div>
+          
+          <div id="sync-results" class="sync-results" style="display: none;">
+            <div class="success-banner">
+              <div class="success-icon">✓</div>
+              <h2>Synchronization Complete</h2>
+            </div>
+            
+            <div class="sync-summary">
+              <h3>Summary</h3>
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <div class="stat-value">3</div>
+                  <div class="stat-label">Processed</div>
+                </div>
+                <div class="stat-card success">
+                  <div class="stat-value">2</div>
+                  <div class="stat-label">Created</div>
+                </div>
+                <div class="stat-card warning">
+                  <div class="stat-value">1</div>
+                  <div class="stat-label">Updated</div>
+                </div>
+                <div class="stat-card error">
+                  <div class="stat-value">0</div>
+                  <div class="stat-label">Failed</div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="action-buttons">
+              <a href="/dashboard" class="btn">Go to Dashboard</a>
+              <a href="/upload" class="btn btn-secondary">Upload More Files</a>
+              <button class="btn btn-secondary" onclick="location.reload()">Reset</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Get DOM elements
+    const initialView = document.getElementById('initial-view');
+    const syncProgress = document.getElementById('sync-progress');
+    const syncProgressBar = document.getElementById('sync-progress-bar');
+    const syncResults = document.getElementById('sync-results');
+    const syncButton = document.getElementById('sync-button');
+    
+    // Start sync process
+    syncButton.addEventListener('click', function() {
+      initialView.style.display = 'none';
+      syncProgress.style.display = 'block';
+      
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += 2;
+        syncProgressBar.style.width = progress + '%';
+        
+        if (progress >= 100) {
+          clearInterval(interval);
+          
+          setTimeout(() => {
+            syncProgress.style.display = 'none';
+            syncResults.style.display = 'block';
+          }, 500);
+        }
+      }, 100);
+    });
+  </script>
+</body>
+</html>

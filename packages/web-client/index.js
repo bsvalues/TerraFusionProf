@@ -97,6 +97,35 @@ const server = http.createServer((req, res) => {
     return;
   }
   
+  // Look for specific routes first
+  if (req.url === '/upload' || req.url === '/upload/') {
+    // Serve the upload.html file for the /upload route
+    fs.readFile(path.join(publicDir, 'upload.html'), (err, content) => {
+      if (err) {
+        res.writeHead(500);
+        res.end('Server Error: Could not find upload.html');
+        return;
+      }
+      
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(content, 'utf8');
+    });
+    return;
+  } else if (req.url === '/sync' || req.url === '/sync/') {
+    // Serve the sync.html file for the /sync route
+    fs.readFile(path.join(publicDir, 'sync.html'), (err, content) => {
+      if (err) {
+        res.writeHead(500);
+        res.end('Server Error: Could not find sync.html');
+        return;
+      }
+      
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(content, 'utf8');
+    });
+    return;
+  }
+  
   // Parse the URL for static files
   let filePath = path.join(publicDir, req.url === '/' ? 'index.html' : req.url);
   
@@ -117,23 +146,11 @@ const server = http.createServer((req, res) => {
       if (err.code === 'ENOENT') {
         // If the file doesn't exist, check if it's a direct route (SPA support)
         if (extname === '') {
-          // Check if the request is for a React route
-          const isReactRoute = req.url === '/app' || 
-                              req.url.startsWith('/upload') || 
-                              req.url.startsWith('/sync') || 
-                              req.url.startsWith('/dashboard') || 
-                              req.url.startsWith('/properties') || 
-                              req.url.startsWith('/reports') || 
-                              req.url.startsWith('/login') || 
-                              req.url.startsWith('/register');
-          
-          const htmlFile = isReactRoute ? 'app.html' : 'index.html';
-          
-          // Serve app.html for React routes, index.html for everything else
-          fs.readFile(path.join(publicDir, htmlFile), (err, content) => {
+          // Serve index.html for routes without specific handlers
+          fs.readFile(path.join(publicDir, 'index.html'), (err, content) => {
             if (err) {
               res.writeHead(500);
-              res.end(`Server Error: Could not find ${htmlFile}`);
+              res.end('Server Error: Could not find index.html');
               return;
             }
             
