@@ -1,77 +1,88 @@
 /**
  * TerraFusionPro - Footer Component
- * Provides the application footer with links and copyright info
+ * Provides application footer with links and copyright information
  */
 
 import React from 'react';
 import { Link } from 'react-router-dom';
+import ServiceHealth from '../dashboard/ServiceHealth';
 
-const Footer = () => {
+/**
+ * Footer Component
+ * @param {Object} props - Component props
+ * @param {boolean} props.showServiceStatus - Whether to show system status in footer
+ */
+const Footer = ({ 
+  showServiceStatus = true 
+}) => {
   const currentYear = new Date().getFullYear();
   
   return (
     <footer className="app-footer">
-      <div className="footer-container">
-        <div className="footer-main">
+      <div className="footer-content">
+        <div className="footer-section branding">
           <div className="footer-logo">
             <img 
-              src="/logo-small.svg" 
-              alt="TerraFusionPro" 
-              className="footer-logo-image"
+              src="/assets/images/terrafusion-logo.svg" 
+              alt="TerraFusionPro Logo" 
+              className="footer-logo-image" 
             />
-            <div className="footer-logo-text">TerraFusionPro</div>
+            <span className="footer-logo-text">TerraFusionPro</span>
           </div>
-          
-          <div className="footer-navigation">
-            <div className="footer-nav-group">
-              <h3 className="footer-nav-title">Platform</h3>
-              <ul className="footer-nav-list">
-                <li><Link to="/dashboard">Dashboard</Link></li>
-                <li><Link to="/properties">Properties</Link></li>
-                <li><Link to="/reports">Reports</Link></li>
-                <li><Link to="/market-analysis">Market Analysis</Link></li>
-              </ul>
-            </div>
-            
-            <div className="footer-nav-group">
-              <h3 className="footer-nav-title">Resources</h3>
-              <ul className="footer-nav-list">
-                <li><Link to="/help">Help Center</Link></li>
-                <li><Link to="/documentation">Documentation</Link></li>
-                <li><Link to="/api-docs">API Reference</Link></li>
-                <li><Link to="/status">System Status</Link></li>
-              </ul>
-            </div>
-            
-            <div className="footer-nav-group">
-              <h3 className="footer-nav-title">Company</h3>
-              <ul className="footer-nav-list">
-                <li><a href="https://terrafusionpro.com/about" target="_blank" rel="noopener noreferrer">About Us</a></li>
-                <li><a href="https://terrafusionpro.com/contact" target="_blank" rel="noopener noreferrer">Contact</a></li>
-                <li><a href="https://terrafusionpro.com/careers" target="_blank" rel="noopener noreferrer">Careers</a></li>
-                <li><a href="https://terrafusionpro.com/blog" target="_blank" rel="noopener noreferrer">Blog</a></li>
-              </ul>
-            </div>
+          <div className="footer-tagline">
+            Advanced Property Valuation Platform
           </div>
         </div>
         
-        <div className="footer-bottom">
-          <div className="footer-legal">
-            <div className="copyright">
-              &copy; {currentYear} TerraFusionPro. All rights reserved.
-            </div>
-            
-            <div className="legal-links">
-              <Link to="/privacy">Privacy Policy</Link>
-              <Link to="/terms">Terms of Service</Link>
-              <Link to="/security">Security</Link>
-            </div>
+        {showServiceStatus && (
+          <div className="footer-section system-status">
+            <div className="status-label">System Status:</div>
+            <div className="status-indicator healthy"></div>
+            <div className="status-text">All Systems Operational</div>
+            <Link to="/system/status" className="status-link">View Details</Link>
+          </div>
+        )}
+        
+        <div className="footer-section links">
+          <div className="footer-link-group">
+            <h4 className="link-group-title">Company</h4>
+            <ul className="footer-links">
+              <li><a href="#" className="footer-link">About Us</a></li>
+              <li><a href="#" className="footer-link">Contact</a></li>
+              <li><a href="#" className="footer-link">Careers</a></li>
+              <li><a href="#" className="footer-link">Blog</a></li>
+            </ul>
           </div>
           
-          <div className="footer-version">
-            <span className="version-label">Version</span>
-            <span className="version-number">1.0.0</span>
+          <div className="footer-link-group">
+            <h4 className="link-group-title">Support</h4>
+            <ul className="footer-links">
+              <li><a href="#" className="footer-link">Help Center</a></li>
+              <li><a href="#" className="footer-link">Documentation</a></li>
+              <li><a href="#" className="footer-link">API Reference</a></li>
+              <li><a href="#" className="footer-link">Community</a></li>
+            </ul>
           </div>
+          
+          <div className="footer-link-group">
+            <h4 className="link-group-title">Legal</h4>
+            <ul className="footer-links">
+              <li><a href="#" className="footer-link">Terms of Service</a></li>
+              <li><a href="#" className="footer-link">Privacy Policy</a></li>
+              <li><a href="#" className="footer-link">Security</a></li>
+              <li><a href="#" className="footer-link">Compliance</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      
+      <div className="footer-bottom">
+        <div className="copyright">
+          &copy; {currentYear} TerraFusionPro. All rights reserved.
+        </div>
+        
+        <div className="version">
+          Version 1.0.0
         </div>
       </div>
     </footer>

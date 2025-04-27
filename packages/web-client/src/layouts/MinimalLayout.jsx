@@ -1,60 +1,92 @@
 /**
  * TerraFusionPro - Minimal Layout Component
- * Provides a simplified layout for authentication pages and other standalone pages
+ * Provides a simplified layout structure for login, registration, and other standalone pages
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Outlet, Link } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
+import { initializeNotifications } from '../components/layout/NotificationCenter';
 
-const MinimalLayout = () => {
-  const { theme, toggleTheme } = useTheme();
+/**
+ * MinimalLayout Component
+ * @param {Object} props - Component props
+ * @param {boolean} props.showHeader - Whether to show minimal header
+ * @param {boolean} props.showFooter - Whether to show minimal footer
+ * @param {string} props.backgroundClass - Custom background class
+ */
+const MinimalLayout = ({
+  showHeader = true,
+  showFooter = true,
+  backgroundClass = ''
+}) => {
+  const { theme, setTheme } = useTheme();
+  
+  useEffect(() => {
+    initializeNotifications();
+  }, []);
   
   return (
-    <div className={`minimal-layout ${theme === 'dark' ? 'dark-theme' : ''}`}>
-      <header className="minimal-header">
-        <div className="container">
-          <div className="logo">
-            <Link to="/">
+    <div className={`minimal-container ${theme}-theme ${backgroundClass}`}>
+      {showHeader && (
+        <header className="minimal-header">
+          <div className="logo-container">
+            <Link to="/" className="logo-link">
               <img 
-                src={theme === 'dark' ? '/logo-light.svg' : '/logo-dark.svg'} 
-                alt="TerraFusionPro" 
-                className="logo-image"
+                src="/assets/images/terrafusion-logo.svg" 
+                alt="TerraFusionPro Logo" 
+                className="logo-image" 
               />
+              <span className="logo-text">TerraFusionPro</span>
             </Link>
           </div>
           
-          <div className="header-actions">
+          <div className="minimal-actions">
             <button 
-              className="theme-toggle-btn" 
-              onClick={toggleTheme}
-              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              className="theme-toggle"
+              onClick={() => theme === 'light' ? setTheme('dark') : setTheme('light')}
+              aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
             >
-              {theme === 'dark' ? '☀️' : '🌙'}
+              {theme === 'light' ? (
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
+                  <circle cx="12" cy="12" r="5"></circle>
+                  <line x1="12" y1="1" x2="12" y2="3"></line>
+                  <line x1="12" y1="21" x2="12" y2="23"></line>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                  <line x1="1" y1="12" x2="3" y2="12"></line>
+                  <line x1="21" y1="12" x2="23" y2="12"></line>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+              )}
             </button>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
       
       <main className="minimal-content">
         <Outlet />
       </main>
       
-      <footer className="minimal-footer">
-        <div className="container">
-          <div className="footer-content">
-            <p className="copyright">
-              &copy; {new Date().getFullYear()} TerraFusionPro. All rights reserved.
-            </p>
-            
-            <div className="footer-links">
-              <Link to="/privacy">Privacy Policy</Link>
-              <Link to="/terms">Terms of Service</Link>
-              <Link to="/help">Help Center</Link>
-            </div>
+      {showFooter && (
+        <footer className="minimal-footer">
+          <div className="footer-links">
+            <a href="#" className="footer-link">Privacy Policy</a>
+            <a href="#" className="footer-link">Terms of Service</a>
+            <a href="#" className="footer-link">Help Center</a>
+            <a href="#" className="footer-link">Contact</a>
           </div>
-        </div>
-      </footer>
+          
+          <div className="copyright">
+            &copy; {new Date().getFullYear()} TerraFusionPro. All rights reserved.
+          </div>
+        </footer>
+      )}
     </div>
   );
 };
