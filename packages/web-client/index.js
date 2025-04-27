@@ -117,11 +117,23 @@ const server = http.createServer((req, res) => {
       if (err.code === 'ENOENT') {
         // If the file doesn't exist, check if it's a direct route (SPA support)
         if (extname === '') {
-          // Serve index.html for all routes without file extensions (SPA)
-          fs.readFile(path.join(publicDir, 'index.html'), (err, content) => {
+          // Check if the request is for a React route
+          const isReactRoute = req.url === '/app' || 
+                              req.url.startsWith('/upload') || 
+                              req.url.startsWith('/sync') || 
+                              req.url.startsWith('/dashboard') || 
+                              req.url.startsWith('/properties') || 
+                              req.url.startsWith('/reports') || 
+                              req.url.startsWith('/login') || 
+                              req.url.startsWith('/register');
+          
+          const htmlFile = isReactRoute ? 'app.html' : 'index.html';
+          
+          // Serve app.html for React routes, index.html for everything else
+          fs.readFile(path.join(publicDir, htmlFile), (err, content) => {
             if (err) {
               res.writeHead(500);
-              res.end('Server Error: Could not find index.html');
+              res.end(`Server Error: Could not find ${htmlFile}`);
               return;
             }
             
