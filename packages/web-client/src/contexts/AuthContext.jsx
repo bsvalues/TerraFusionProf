@@ -1,80 +1,76 @@
 /**
  * TerraFusionPro - Auth Context
- * Manages authentication state throughout the application
+ * Provides authentication state and functions across the application
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { createContext, useState, useContext, useEffect } from 'react';
 
-// Create the auth context
+// Create Auth Context
 const AuthContext = createContext();
 
-// Hook to use the auth context
-export const useAuth = () => useContext(AuthContext);
-
-// Auth provider component
+/**
+ * AuthProvider Component
+ * Provides authentication state and functions
+ */
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authToken, setAuthToken] = useState(localStorage.getItem('auth-token'));
   
-  const navigate = useNavigate();
-  
-  // Check authentication state
-  const checkAuthState = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Check for token in storage
-      const token = localStorage.getItem('terraFusionToken') || sessionStorage.getItem('terraFusionToken');
-      
-      if (!token) {
-        setCurrentUser(null);
-        setIsAuthenticated(false);
-        setLoading(false);
-        return;
-      }
-      
-      // Validate token with API
-      const response = await fetch('/api/auth/validate', {
-        headers: {
-          'Authorization': `Bearer ${token}`
+  // Check if user is authenticated on mount
+  useEffect(() => {
+    const checkAuthStatus = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        // If we have a token, try to get the user profile
+        if (authToken) {
+          const response = await fetch('/api/auth/profile', {
+            headers: {
+              'Authorization': `Bearer ${authToken}`
+            }
+          });
+          
+          if (response.ok) {
+            const userData = await response.json();
+            setCurrentUser(userData);
+            setIsAuthenticated(true);
+          } else {
+            // Token is invalid, clear auth state
+            localStorage.removeItem('auth-token');
+            setAuthToken(null);
+            setCurrentUser(null);
+            setIsAuthenticated(false);
+          }
+        } else {
+          // No token, user is not authenticated
+          setCurrentUser(null);
+          setIsAuthenticated(false);
         }
-      });
-      
-      if (!response.ok) {
-        // Token is invalid, clear it
-        localStorage.removeItem('terraFusionToken');
-        sessionStorage.removeItem('terraFusionToken');
-        setCurrentUser(null);
+      } catch (err) {
+        console.error('Error checking authentication status:', err);
+        setError('Failed to authenticate. Please try again.');
         setIsAuthenticated(false);
-        setLoading(false);
-        return;
+        setCurrentUser(null);
+        localStorage.removeItem('auth-token');
+        setAuthToken(null);
+      } finally {
+        setIsLoading(false);
       }
-      
-      // Token is valid, set user state
-      const userData = await response.json();
-      setCurrentUser(userData.user);
-      setIsAuthenticated(true);
-    } catch (error) {
-      console.error('Error checking auth state:', error);
-      setError('Failed to verify authentication. Please try again.');
-      setCurrentUser(null);
-      setIsAuthenticated(false);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    
+    checkAuthStatus();
+  }, [authToken]);
   
-  // Login handler
-  const login = async (email, password, rememberMe = false) => {
+  // Login function
+  const login = async (email, password) => {
     try {
-      setLoading(true);
+      setIsLoading(true);
       setError(null);
       
-      // Call login API
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
@@ -83,76 +79,34 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email, password })
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Login failed');
-      }
-      
-      // Handle successful login
       const data = await response.json();
       
-      // Store token in appropriate storage
-      if (rememberMe) {
-        localStorage.setItem('terraFusionToken', data.token);
-      } else {
-        sessionStorage.setItem('terraFusionToken', data.token);
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to login');
       }
       
-      // Update state
+      // Save token to localStorage
+      localStorage.setItem('auth-token', data.token);
+      setAuthToken(data.token);
       setCurrentUser(data.user);
       setIsAuthenticated(true);
       
-      return data.user;
-    } catch (error) {
-      console.error('Login error:', error);
-      setError(error.message || 'Failed to login. Please check your credentials.');
-      throw error;
+      return data;
+    } catch (err) {
+      console.error('Login error:', err);
+      setError(err.message || 'Failed to login. Please check your credentials.');
+      throw err;
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
   
-  // Logout handler
-  const logout = async () => {
-    try {
-      setLoading(true);
-      
-      // Call logout API if needed (e.g., to invalidate token server-side)
-      const token = localStorage.getItem('terraFusionToken') || sessionStorage.getItem('terraFusionToken');
-      
-      if (token) {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }).catch(err => console.warn('Logout API error:', err));
-      }
-      
-      // Clear local storage
-      localStorage.removeItem('terraFusionToken');
-      sessionStorage.removeItem('terraFusionToken');
-      
-      // Update state
-      setCurrentUser(null);
-      setIsAuthenticated(false);
-      
-      // Redirect to login page
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Register handler
+  // Register function
   const register = async (userData) => {
     try {
-      setLoading(true);
+      setIsLoading(true);
       setError(null);
       
-      // Call register API
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: {
@@ -161,122 +115,58 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify(userData)
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Registration failed');
-      }
-      
-      // Handle successful registration
       const data = await response.json();
       
-      // Store token in session storage by default for new registrations
-      sessionStorage.setItem('terraFusionToken', data.token);
-      
-      // Update state
-      setCurrentUser(data.user);
-      setIsAuthenticated(true);
-      
-      return data.user;
-    } catch (error) {
-      console.error('Registration error:', error);
-      setError(error.message || 'Failed to register. Please try again.');
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Update user profile
-  const updateProfile = async (profileData) => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const token = localStorage.getItem('terraFusionToken') || sessionStorage.getItem('terraFusionToken');
-      
-      if (!token) {
-        throw new Error('You must be logged in to update your profile');
-      }
-      
-      // Call update profile API
-      const response = await fetch('/api/users/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(profileData)
-      });
-      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to update profile');
+        throw new Error(data.message || 'Failed to register');
       }
       
-      // Handle successful update
-      const data = await response.json();
-      
-      // Update local user state
-      setCurrentUser(prevUser => ({
-        ...prevUser,
-        ...data.user
-      }));
-      
-      return data.user;
-    } catch (error) {
-      console.error('Profile update error:', error);
-      setError(error.message || 'Failed to update profile. Please try again.');
-      throw error;
+      // Auto-login after successful registration
+      return login(userData.email, userData.password);
+    } catch (err) {
+      console.error('Registration error:', err);
+      setError(err.message || 'Failed to register. Please try again.');
+      throw err;
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
   
-  // Change password
-  const changePassword = async (currentPassword, newPassword) => {
+  // Logout function
+  const logout = async () => {
     try {
-      setLoading(true);
+      setIsLoading(true);
+      
+      // Call logout endpoint to invalidate the token on the server
+      if (authToken) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
+        });
+      }
+      
+      // Clear auth state
+      localStorage.removeItem('auth-token');
+      setAuthToken(null);
+      setCurrentUser(null);
+      setIsAuthenticated(false);
       setError(null);
-      
-      const token = localStorage.getItem('terraFusionToken') || sessionStorage.getItem('terraFusionToken');
-      
-      if (!token) {
-        throw new Error('You must be logged in to change your password');
-      }
-      
-      // Call change password API
-      const response = await fetch('/api/auth/change-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ currentPassword, newPassword })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to change password');
-      }
-      
-      return true;
-    } catch (error) {
-      console.error('Password change error:', error);
-      setError(error.message || 'Failed to change password. Please try again.');
-      throw error;
+    } catch (err) {
+      console.error('Logout error:', err);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
   
-  // Reset password
+  // Password reset request function
   const resetPassword = async (email) => {
     try {
-      setLoading(true);
+      setIsLoading(true);
       setError(null);
       
-      // Call reset password API
-      const response = await fetch('/api/auth/reset-password', {
+      const response = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -284,53 +174,127 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email })
       });
       
+      const data = await response.json();
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to reset password');
+        throw new Error(data.message || 'Failed to send password reset email');
       }
       
-      return true;
-    } catch (error) {
-      console.error('Password reset error:', error);
-      setError(error.message || 'Failed to reset password. Please try again.');
-      throw error;
+      return data;
+    } catch (err) {
+      console.error('Password reset request error:', err);
+      setError(err.message || 'Failed to send password reset email. Please try again.');
+      throw err;
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
   
-  // Check if user has a specific role/permission
-  const hasRole = (role) => {
-    if (!currentUser || !currentUser.roles) return false;
-    return currentUser.roles.includes(role);
+  // Update user profile function
+  const updateProfile = async (profileData) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      if (!authToken) {
+        throw new Error('Not authenticated');
+      }
+      
+      const response = await fetch('/api/auth/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify(profileData)
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to update profile');
+      }
+      
+      // Update current user data
+      setCurrentUser(prevUser => ({
+        ...prevUser,
+        ...data.user
+      }));
+      
+      return data;
+    } catch (err) {
+      console.error('Profile update error:', err);
+      setError(err.message || 'Failed to update profile. Please try again.');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
   };
   
-  // Check auth state on mount
-  useEffect(() => {
-    checkAuthState();
-  }, []);
+  // Change password function
+  const changePassword = async (currentPassword, newPassword) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      if (!authToken) {
+        throw new Error('Not authenticated');
+      }
+      
+      const response = await fetch('/api/auth/change-password', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to change password');
+      }
+      
+      return data;
+    } catch (err) {
+      console.error('Password change error:', err);
+      setError(err.message || 'Failed to change password. Please try again.');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
-  // Context value
-  const value = {
+  const authContextValue = {
     currentUser,
-    isAuthenticated,
-    loading,
+    isLoading,
     error,
+    isAuthenticated,
+    authToken,
     login,
-    logout,
     register,
-    updateProfile,
-    changePassword,
+    logout,
     resetPassword,
-    checkAuthState,
-    hasRole
+    updateProfile,
+    changePassword
   };
   
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={authContextValue}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export default AuthContext;
+/**
+ * useAuth Hook
+ * Custom hook to use the auth context
+ */
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

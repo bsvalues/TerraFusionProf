@@ -1,6 +1,6 @@
 /**
  * TerraFusionPro - App Routes
- * Defines application routing and layout structure
+ * Defines the application's routing structure
  */
 
 import React from 'react';
@@ -17,22 +17,16 @@ import RegisterPage from '../pages/auth/RegisterPage';
 import ForgotPasswordPage from '../pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from '../pages/auth/ResetPasswordPage';
 
-// Main Pages
-import DashboardPage from '../pages/dashboard/DashboardPage';
-import NotFoundPage from '../pages/NotFoundPage';
+// Error Pages
+import NotFoundPage from '../pages/errors/NotFoundPage';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   
   // Show loading state while checking authentication
-  if (loading) {
-    return (
-      <div className="page-loading">
-        <div className="loading-spinner"></div>
-        <p>Loading...</p>
-      </div>
-    );
+  if (isLoading) {
+    return <div className="loading-screen">Loading...</div>;
   }
   
   // Redirect to login if not authenticated
@@ -40,87 +34,85 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/auth/login" replace />;
   }
   
-  // Render children if authenticated
   return children;
 };
 
-// App Routes
+// Public Route Component (accessible only when not authenticated)
+const PublicRoute = ({ children }) => {
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return <div className="loading-screen">Loading...</div>;
+  }
+  
+  // Redirect to dashboard if already authenticated
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return children;
+};
+
+// Main Routes Component
 const AppRoutes = () => {
   return (
     <Routes>
-      {/* Public Routes with Minimal Layout */}
-      <Route element={<MinimalLayout />}>
-        <Route path="/auth/login" element={<LoginPage />} />
-        <Route path="/auth/register" element={<RegisterPage />} />
-        <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+      {/* Auth Routes (public) */}
+      <Route path="/auth/*" element={<MinimalLayout />}>
+        <Route path="login" element={
+          <PublicRoute>
+            <LoginPage />
+          </PublicRoute>
+        } />
+        <Route path="register" element={
+          <PublicRoute>
+            <RegisterPage />
+          </PublicRoute>
+        } />
+        <Route path="forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="reset-password" element={<ResetPasswordPage />} />
       </Route>
       
-      {/* Protected Routes with Main Layout */}
-      <Route element={
+      {/* Main App Routes (protected) */}
+      <Route path="/*" element={
         <ProtectedRoute>
           <MainLayout />
         </ProtectedRoute>
       }>
-        <Route path="/dashboard" element={<DashboardPage />} />
+        {/* Dashboard Routes */}
+        <Route path="dashboard" element={<div>Dashboard</div>} />
         
         {/* Properties Routes */}
-        <Route path="/properties" element={<Navigate to="/properties/list" replace />} />
-        <Route path="/properties/list" element={<div>Properties List</div>} />
-        <Route path="/properties/new" element={<div>New Property</div>} />
-        <Route path="/properties/:id" element={<div>Property Details</div>} />
-        <Route path="/properties/:id/edit" element={<div>Edit Property</div>} />
-        <Route path="/properties/map" element={<div>Property Map</div>} />
+        <Route path="properties" element={<div>Properties</div>} />
+        <Route path="properties/:id" element={<div>Property Details</div>} />
         
         {/* Reports Routes */}
-        <Route path="/reports" element={<Navigate to="/reports/list" replace />} />
-        <Route path="/reports/list" element={<div>Reports List</div>} />
-        <Route path="/reports/new" element={<div>New Report</div>} />
-        <Route path="/reports/:id" element={<div>Report Details</div>} />
-        <Route path="/reports/:id/edit" element={<div>Edit Report</div>} />
-        <Route path="/reports/templates" element={<div>Report Templates</div>} />
+        <Route path="reports" element={<div>Reports</div>} />
+        <Route path="reports/:id" element={<div>Report Details</div>} />
         
-        {/* Analytics Routes */}
-        <Route path="/analytics" element={<Navigate to="/analytics/overview" replace />} />
-        <Route path="/analytics/overview" element={<div>Analytics Overview</div>} />
-        <Route path="/analytics/market" element={<div>Market Analysis</div>} />
-        <Route path="/analytics/properties" element={<div>Property Analytics</div>} />
-        <Route path="/analytics/comps" element={<div>Comparable Analysis</div>} />
+        {/* Forms Routes */}
+        <Route path="forms" element={<div>Forms</div>} />
+        <Route path="forms/:id" element={<div>Form Details</div>} />
         
-        {/* Data Management Routes */}
-        <Route path="/data" element={<Navigate to="/data/sources" replace />} />
-        <Route path="/data/sources" element={<div>Data Sources</div>} />
-        <Route path="/data/import" element={<div>Import Data</div>} />
-        <Route path="/data/export" element={<div>Export Data</div>} />
-        <Route path="/data/quality" element={<div>Data Quality</div>} />
+        {/* Analysis Routes */}
+        <Route path="analysis" element={<div>Analysis</div>} />
+        <Route path="analysis/:id" element={<div>Analysis Details</div>} />
         
         {/* User Profile Routes */}
-        <Route path="/profile" element={<div>User Profile</div>} />
-        <Route path="/profile/edit" element={<div>Edit Profile</div>} />
-        <Route path="/profile/password" element={<div>Change Password</div>} />
+        <Route path="profile" element={<div>User Profile</div>} />
+        <Route path="settings" element={<div>Settings</div>} />
         
-        {/* Settings Routes */}
-        <Route path="/settings" element={<div>Settings</div>} />
-        <Route path="/settings/account" element={<div>Account Settings</div>} />
-        <Route path="/settings/notifications" element={<div>Notification Settings</div>} />
-        <Route path="/settings/integrations" element={<div>Integrations</div>} />
+        {/* Help/Support Routes */}
+        <Route path="help" element={<div>Help Center</div>} />
+        <Route path="help/:topic" element={<div>Help Topic</div>} />
         
-        {/* System Routes */}
-        <Route path="/system/health" element={<div>System Health</div>} />
-        <Route path="/system/status" element={<div>System Status</div>} />
+        {/* Default redirect for the app root */}
+        <Route index element={<Navigate to="/dashboard" replace />} />
         
-        {/* Help Routes */}
-        <Route path="/help" element={<div>Help Center</div>} />
-        <Route path="/help/login" element={<div>Login Help</div>} />
-        <Route path="/help/documentation" element={<div>Documentation</div>} />
-        <Route path="/help/support" element={<div>Support</div>} />
+        {/* 404 for any unmatched routes */}
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
-      
-      {/* Redirect root to dashboard or login */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      
-      {/* 404 Not Found */}
-      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 };

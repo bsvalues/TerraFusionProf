@@ -1,117 +1,62 @@
 /**
  * TerraFusionPro - Theme Context
- * Manages application theme preferences (light/dark mode)
+ * Provides theme management across the application
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect } from 'react';
 
-// Create theme context
+// Create Theme Context
 const ThemeContext = createContext();
 
-// Hook to use the theme context
-export const useTheme = () => useContext(ThemeContext);
-
-// Theme provider component
+/**
+ * ThemeProvider Component
+ * Provides theme state and functions to toggle theme
+ */
 export const ThemeProvider = ({ children }) => {
-  // Get initial theme from local storage or system preference
-  const getInitialTheme = () => {
-    const savedTheme = localStorage.getItem('terraFusionTheme');
-    
-    if (savedTheme) {
-      return savedTheme;
-    }
-    
-    // Check for system preference
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      return 'dark';
-    }
-    
-    return 'light';
-  };
+  // Get theme from localStorage or default to 'light'
+  const [theme, setTheme] = useState(() => {
+    const savedTheme = localStorage.getItem('terrafusion-theme');
+    return savedTheme || 'light';
+  });
   
-  const [theme, setTheme] = useState(getInitialTheme);
-  
-  // Apply theme class to body
-  useEffect(() => {
-    // Remove previous theme classes
-    document.body.classList.remove('light-theme', 'dark-theme');
-    
-    // Add current theme class
-    document.body.classList.add(`${theme}-theme`);
-    
-    // Store preference in local storage
-    localStorage.setItem('terraFusionTheme', theme);
-  }, [theme]);
-  
-  // Listen for system preference changes
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
-    const handleChange = () => {
-      // Only change theme if user hasn't explicitly set a preference
-      if (!localStorage.getItem('terraFusionTheme')) {
-        setTheme(mediaQuery.matches ? 'dark' : 'light');
-      }
-    };
-    
-    // Add listener for system preference changes
-    if (mediaQuery.addEventListener) {
-      mediaQuery.addEventListener('change', handleChange);
-    } else {
-      // Older browser support
-      mediaQuery.addListener(handleChange);
-    }
-    
-    return () => {
-      // Clean up listener
-      if (mediaQuery.removeEventListener) {
-        mediaQuery.removeEventListener('change', handleChange);
-      } else {
-        // Older browser support
-        mediaQuery.removeListener(handleChange);
-      }
-    };
-  }, []);
-  
-  // Toggle theme
+  // Toggle theme between light and dark
   const toggleTheme = () => {
-    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
+    setTheme(prevTheme => {
+      const newTheme = prevTheme === 'light' ? 'dark' : 'light';
+      localStorage.setItem('terrafusion-theme', newTheme);
+      return newTheme;
+    });
   };
   
   // Set specific theme
-  const setThemeExplicitly = (newTheme) => {
+  const setSpecificTheme = (newTheme) => {
     if (newTheme === 'light' || newTheme === 'dark') {
       setTheme(newTheme);
+      localStorage.setItem('terrafusion-theme', newTheme);
     }
   };
   
-  // Remove user preference and use system
-  const useSystemTheme = () => {
-    localStorage.removeItem('terraFusionTheme');
-    
-    // Check system preference
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark');
-    } else {
-      setTheme('light');
-    }
-  };
-  
-  // Provide theme values and functions
-  const value = {
-    theme,
-    toggleTheme,
-    setTheme: setThemeExplicitly,
-    useSystemTheme
-  };
+  // Apply theme to body element
+  useEffect(() => {
+    document.body.classList.remove('light-theme', 'dark-theme');
+    document.body.classList.add(`${theme}-theme`);
+  }, [theme]);
   
   return (
-    <ThemeContext.Provider value={value}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme: setSpecificTheme }}>
       {children}
     </ThemeContext.Provider>
   );
 };
 
-export default ThemeContext;
+/**
+ * useTheme Hook
+ * Custom hook to use the theme context
+ */
+export const useTheme = () => {
+  const context = useContext(ThemeContext);
+  if (context === undefined) {
+    throw new Error('useTheme must be used within a ThemeProvider');
+  }
+  return context;
+};

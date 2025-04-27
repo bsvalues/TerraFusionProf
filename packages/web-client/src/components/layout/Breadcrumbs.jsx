@@ -1,109 +1,101 @@
 /**
  * TerraFusionPro - Breadcrumbs Component
- * Displays hierarchical navigation path for current page
+ * Displays the navigation path for the current page
  */
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 /**
- * Breadcrumbs Component
- * @param {Object} props - Component props
- * @param {Object} props.routeMapping - Custom mapping of routes to breadcrumb labels
- * @param {Object} props.dynamicSegments - Object of dynamic segment values (e.g., { id: 'Property Name' })
- * @param {boolean} props.showHomeIcon - Whether to show home icon for first item
+ * Mapping of paths to readable names
  */
-const Breadcrumbs = ({
-  routeMapping = {},
-  dynamicSegments = {},
-  showHomeIcon = true
-}) => {
-  const location = useLocation();
-  const [breadcrumbs, setBreadcrumbs] = useState([]);
-  
-  useEffect(() => {
-    // Generate breadcrumbs based on current location
-    const generateBreadcrumbs = () => {
-      const pathSegments = location.pathname.split('/').filter(Boolean);
-      
-      // Start with home
-      const crumbs = [
-        {
-          label: 'Home',
-          path: '/',
-          isLast: pathSegments.length === 0
-        }
-      ];
-      
-      // Build up the breadcrumbs for each path segment
-      let currentPath = '';
-      
-      pathSegments.forEach((segment, index) => {
-        currentPath += `/${segment}`;
-        
-        // Check if this segment is a dynamic parameter (e.g., :id)
-        const isDynamicSegment = segment.match(/^[0-9a-f]{8,}$/i);
-        const isLastSegment = index === pathSegments.length - 1;
-        
-        let label;
-        
-        // Try to find a specific mapping for this path
-        if (routeMapping[currentPath]) {
-          label = routeMapping[currentPath];
-        } 
-        // Use the dynamic segment label if this appears to be a parameter
-        else if (isDynamicSegment && dynamicSegments[segment]) {
-          label = dynamicSegments[segment];
-        }
-        // Default to formatted segment name
-        else {
-          label = segment
-            .split('-')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ');
-        }
-        
-        crumbs.push({
-          label,
-          path: currentPath,
-          isLast: isLastSegment
-        });
-      });
-      
-      return crumbs;
-    };
-    
-    setBreadcrumbs(generateBreadcrumbs());
-  }, [location, routeMapping, dynamicSegments]);
-  
-  if (breadcrumbs.length <= 1) {
-    return null; // Don't show breadcrumbs on home page
+const pathNames = {
+  '': 'Home',
+  'dashboard': 'Dashboard',
+  'properties': 'Properties',
+  'reports': 'Reports',
+  'forms': 'Forms',
+  'analysis': 'Analysis',
+  'profile': 'Profile',
+  'settings': 'Settings',
+  'admin': 'Administration',
+  'help': 'Help',
+  'create': 'Create',
+  'edit': 'Edit',
+  'view': 'View',
+  'map': 'Map',
+  'templates': 'Templates',
+  'assigned': 'Assigned',
+  'builder': 'Form Builder',
+  'market': 'Market Analysis',
+  'trends': 'Trends',
+  'comparables': 'Comparables',
+  'users': 'User Management',
+  'system-health': 'System Health',
+  'activity-logs': 'Activity Logs'
+};
+
+/**
+ * Get readable name for a path segment
+ * @param {string} path - The path segment
+ * @return {string} - The readable name
+ */
+const getReadableName = (path) => {
+  // If the path is an ID (UUID or numeric), try to display something meaningful
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path) || /^\d+$/.test(path)) {
+    return 'Details';
   }
   
+  return pathNames[path] || path.charAt(0).toUpperCase() + path.slice(1).replace(/-/g, ' ');
+};
+
+/**
+ * Breadcrumbs Component
+ */
+const Breadcrumbs = () => {
+  const location = useLocation();
+  
+  // If we're at the root path, don't show breadcrumbs
+  if (location.pathname === '/') {
+    return null;
+  }
+  
+  // Split path into segments and remove empty segments
+  const pathSegments = location.pathname.split('/').filter(Boolean);
+  
+  // Build breadcrumb items with links
+  const breadcrumbItems = pathSegments.map((segment, index) => {
+    const url = `/${pathSegments.slice(0, index + 1).join('/')}`;
+    const isLast = index === pathSegments.length - 1;
+    
+    return {
+      name: getReadableName(segment),
+      url,
+      isLast
+    };
+  });
+  
+  // Always include Home as the first breadcrumb
+  breadcrumbItems.unshift({
+    name: 'Home',
+    url: '/',
+    isLast: breadcrumbItems.length === 0
+  });
+  
   return (
-    <nav className="breadcrumbs" aria-label="Breadcrumb">
+    <nav aria-label="breadcrumb" className="breadcrumbs">
       <ol className="breadcrumb-list">
-        {breadcrumbs.map((crumb, index) => (
-          <li 
-            key={crumb.path} 
-            className={`breadcrumb-item ${crumb.isLast ? 'active' : ''}`}
-          >
-            {index === 0 && showHomeIcon ? (
-              <Link to={crumb.path} aria-label="Home">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                </svg>
-              </Link>
-            ) : crumb.isLast ? (
-              <span>{crumb.label}</span>
+        {breadcrumbItems.map((item, index) => (
+          <li key={index} className={`breadcrumb-item ${item.isLast ? 'active' : ''}`}>
+            {item.isLast ? (
+              <span>{item.name}</span>
             ) : (
-              <Link to={crumb.path}>{crumb.label}</Link>
+              <Link to={item.url}>{item.name}</Link>
             )}
             
-            {!crumb.isLast && (
+            {!item.isLast && (
               <span className="breadcrumb-separator">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" strokeWidth="2">
                   <polyline points="9 18 15 12 9 6"></polyline>
                 </svg>
               </span>

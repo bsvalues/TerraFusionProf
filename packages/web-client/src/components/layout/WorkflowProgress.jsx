@@ -1,6 +1,6 @@
 /**
  * TerraFusionPro - Workflow Progress Component
- * Visualizes multi-step workflows and their progression
+ * Visualizes workflow progress for different process types
  */
 
 import React from 'react';
@@ -8,123 +8,261 @@ import React from 'react';
 /**
  * WorkflowProgress Component
  * @param {Object} props - Component props
- * @param {Array} props.steps - Array of step objects with name and label
- * @param {number} props.currentStep - Current active step index
- * @param {Array} props.visitedSteps - Array of visited step indices
- * @param {Function} props.onStepClick - Handler for step click event
- * @param {boolean} props.allowNavigation - Whether to allow navigation by clicking steps
- * @param {string} props.orientation - Layout orientation ('horizontal' or 'vertical')
- * @param {boolean} props.showLabels - Whether to show step labels
- * @param {boolean} props.showPercentage - Whether to show percentage progress
+ * @param {string} props.type - The type of workflow ('property', 'report', 'form', etc.)
+ * @param {string} props.currentStep - The current step in the workflow
+ * @param {Object[]} props.steps - Array of step objects
+ * @param {function} props.onStepClick - Function to call when a step is clicked
  */
-const WorkflowProgress = ({
+const WorkflowProgress = ({ 
+  type = 'property', 
+  currentStep = '',
   steps = [],
-  currentStep = 0,
-  visitedSteps = [],
-  onStepClick,
-  allowNavigation = true,
-  orientation = 'horizontal',
-  showLabels = true,
-  showPercentage = true
+  onStepClick = () => {}
 }) => {
-  // Calculate progress percentage
-  const progress = Math.round(((currentStep + 1) / steps.length) * 100);
+  // Get workflow steps based on type if not provided
+  const workflowSteps = steps.length > 0 ? steps : getDefaultWorkflowSteps(type);
+  
+  // Find the index of the current step
+  const currentStepIndex = workflowSteps.findIndex(step => step.id === currentStep);
   
   // Handle step click
-  const handleStepClick = (index) => {
-    if (!allowNavigation) return;
-    
-    // Only allow navigation to visited steps or the next step
-    if (visitedSteps.includes(index) || index === currentStep + 1) {
-      if (onStepClick) {
-        onStepClick(index);
-      }
+  const handleStepClick = (step) => {
+    // Only allow clicking on completed steps
+    if (step.status === 'completed' || step.status === 'current') {
+      onStepClick(step);
     }
   };
   
-  // Determine if step is clickable
-  const isStepClickable = (index) => {
-    if (!allowNavigation) return false;
-    return visitedSteps.includes(index) || index === currentStep + 1;
-  };
-  
-  // Get status class for a step
-  const getStepStatusClass = (index) => {
-    if (index === currentStep) return 'active';
-    if (index < currentStep || visitedSteps.includes(index)) return 'completed';
-    return 'pending';
-  };
-  
-  // Get step status for aria-label
-  const getStepStatus = (index) => {
-    if (index === currentStep) return 'current step';
-    if (index < currentStep) return 'completed step';
-    return 'pending step';
-  };
-  
   return (
-    <div className={`workflow-progress ${orientation}`}>
-      {showPercentage && (
-        <div className="workflow-percentage">
-          <span className="percentage-value">{progress}%</span>
-          <span className="percentage-label">Complete</span>
-        </div>
-      )}
+    <div className={`workflow-progress ${type}-workflow`}>
+      <div className="workflow-title">
+        {getWorkflowTitle(type)} Workflow
+      </div>
       
       <div className="workflow-steps">
-        {steps.map((step, index) => (
-          <div 
-            key={index}
-            className={`workflow-step ${getStepStatusClass(index)} ${isStepClickable(index) ? 'clickable' : ''}`}
-            onClick={() => handleStepClick(index)}
-            aria-label={`${step.label}: ${getStepStatus(index)}`}
-            tabIndex={isStepClickable(index) ? 0 : -1}
-            role={isStepClickable(index) ? 'button' : 'presentation'}
-          >
-            <div className="step-indicator">
-              {index < currentStep || visitedSteps.includes(index) ? (
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" strokeWidth="2">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-              ) : (
-                <span className="step-number">{index + 1}</span>
+        {workflowSteps.map((step, index) => {
+          // Determine step status if not provided
+          let status = step.status;
+          if (!status) {
+            if (index < currentStepIndex) {
+              status = 'completed';
+            } else if (index === currentStepIndex) {
+              status = 'current';
+            } else {
+              status = 'pending';
+            }
+          }
+          
+          return (
+            <div 
+              key={step.id} 
+              className={`workflow-step ${status}`}
+              onClick={() => handleStepClick({ ...step, status })}
+            >
+              <div className="step-indicator">
+                {status === 'completed' ? (
+                  <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" strokeWidth="2">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                ) : (
+                  <span className="step-number">{index + 1}</span>
+                )}
+              </div>
+              <div className="step-content">
+                <div className="step-label">{step.label}</div>
+                {step.description && (
+                  <div className="step-description">{step.description}</div>
+                )}
+              </div>
+              {index < workflowSteps.length - 1 && (
+                <div className="step-connector"></div>
               )}
             </div>
-            
-            {showLabels && (
-              <div className="step-label">
-                {step.label}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      
-      <div className="workflow-progress-bar">
-        <div 
-          className="progress-bar-fill"
-          style={{ width: `${progress}%` }}
-          role="progressbar"
-          aria-valuenow={progress}
-          aria-valuemin="0"
-          aria-valuemax="100"
-        ></div>
-      </div>
-      
-      <div className="workflow-status">
-        <div className="current-step-name">
-          <span className="status-label">Current Step:</span>
-          <span className="step-name">{steps[currentStep]?.label}</span>
-        </div>
-        
-        <div className="steps-count">
-          <span className="steps-completed">{Math.max(currentStep, 0) + 1}</span>
-          <span className="steps-separator">/</span>
-          <span className="steps-total">{steps.length}</span>
-        </div>
+          );
+        })}
       </div>
     </div>
   );
+};
+
+/**
+ * Get the workflow title based on type
+ * @param {string} type - The workflow type
+ * @returns {string} - The title
+ */
+const getWorkflowTitle = (type) => {
+  switch (type) {
+    case 'property':
+      return 'Property Management';
+    case 'report':
+      return 'Report Generation';
+    case 'form':
+      return 'Form Completion';
+    case 'analysis':
+      return 'Data Analysis';
+    default:
+      return 'Process';
+  }
+};
+
+/**
+ * Get default workflow steps based on type
+ * @param {string} type - The workflow type
+ * @returns {Object[]} - Array of step objects
+ */
+const getDefaultWorkflowSteps = (type) => {
+  switch (type) {
+    case 'property':
+      return [
+        {
+          id: 'info',
+          label: 'Property Information',
+          description: 'Basic property details and location'
+        },
+        {
+          id: 'characteristics',
+          label: 'Property Characteristics',
+          description: 'Physical attributes and features'
+        },
+        {
+          id: 'documents',
+          label: 'Documents & Photos',
+          description: 'Upload relevant files and images'
+        },
+        {
+          id: 'valuation',
+          label: 'Valuation',
+          description: 'Property value assessment'
+        },
+        {
+          id: 'review',
+          label: 'Review & Submit',
+          description: 'Final review and confirmation'
+        }
+      ];
+    case 'report':
+      return [
+        {
+          id: 'select-property',
+          label: 'Select Property',
+          description: 'Choose the property for the report'
+        },
+        {
+          id: 'select-template',
+          label: 'Select Template',
+          description: 'Choose a report template'
+        },
+        {
+          id: 'gather-data',
+          label: 'Data Collection',
+          description: 'Collect required data and comparables'
+        },
+        {
+          id: 'analysis',
+          label: 'Analysis',
+          description: 'Property and market analysis'
+        },
+        {
+          id: 'draft',
+          label: 'Draft Report',
+          description: 'Generate draft report'
+        },
+        {
+          id: 'review',
+          label: 'Review & Edit',
+          description: 'Review and make final adjustments'
+        },
+        {
+          id: 'finalize',
+          label: 'Finalize & Deliver',
+          description: 'Finalize and deliver the report'
+        }
+      ];
+    case 'form':
+      return [
+        {
+          id: 'select-form',
+          label: 'Select Form',
+          description: 'Choose the form template'
+        },
+        {
+          id: 'property-details',
+          label: 'Property Details',
+          description: 'Enter property information'
+        },
+        {
+          id: 'inspection',
+          label: 'Inspection Notes',
+          description: 'Document inspection findings'
+        },
+        {
+          id: 'attachments',
+          label: 'Attachments',
+          description: 'Add photos and documents'
+        },
+        {
+          id: 'review',
+          label: 'Review & Submit',
+          description: 'Final review and submission'
+        }
+      ];
+    case 'analysis':
+      return [
+        {
+          id: 'data-selection',
+          label: 'Data Selection',
+          description: 'Select data sources and parameters'
+        },
+        {
+          id: 'preprocessing',
+          label: 'Data Preprocessing',
+          description: 'Clean and prepare data'
+        },
+        {
+          id: 'analysis',
+          label: 'Analysis',
+          description: 'Run analysis algorithms'
+        },
+        {
+          id: 'visualization',
+          label: 'Visualization',
+          description: 'Generate charts and visualizations'
+        },
+        {
+          id: 'interpret',
+          label: 'Interpretation',
+          description: 'Interpret and document findings'
+        },
+        {
+          id: 'export',
+          label: 'Export Results',
+          description: 'Export and share analysis results'
+        }
+      ];
+    default:
+      return [
+        {
+          id: 'step1',
+          label: 'Step 1',
+          description: 'First step'
+        },
+        {
+          id: 'step2',
+          label: 'Step 2',
+          description: 'Second step'
+        },
+        {
+          id: 'step3',
+          label: 'Step 3',
+          description: 'Third step'
+        },
+        {
+          id: 'step4',
+          label: 'Step 4',
+          description: 'Fourth step'
+        }
+      ];
+  }
 };
 
 export default WorkflowProgress;

@@ -1,21 +1,12 @@
 /**
  * TerraFusionPro - Notification Center Component
- * Manages application-wide notifications and alerts
+ * Provides a centralized notification system for the application
  */
 
-import React, { useState, useEffect, createContext, useContext } from 'react';
-import { createPortal } from 'react-dom';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
-// Create notification context
+// Create Notification Context
 const NotificationContext = createContext();
-
-/**
- * Generate unique ID for notifications
- * @returns {string} Unique ID
- */
-const generateId = () => {
-  return `notification-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-};
 
 /**
  * NotificationProvider Component
@@ -24,171 +15,174 @@ const generateId = () => {
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
   
-  // Add notification
-  const addNotification = (notification) => {
-    const id = notification.id || generateId();
-    const notificationWithDefaults = {
-      id,
-      type: 'info',
-      title: '',
-      message: '',
-      duration: 5000,
-      ...notification
-    };
+  // Add a new notification
+  const addNotification = useCallback((newNotification) => {
+    // Generate a unique ID
+    const id = Date.now() + Math.random().toString(36).substring(7);
     
-    setNotifications((prev) => [...prev, notificationWithDefaults]);
+    // Set default duration if not provided
+    const duration = newNotification.duration || 5000;
     
-    // Auto-remove notification after duration
-    if (notificationWithDefaults.duration > 0) {
+    // Add the notification to the list
+    setNotifications(prev => [...prev, { ...newNotification, id, duration }]);
+    
+    // Auto remove notification after duration
+    if (duration !== Infinity) {
       setTimeout(() => {
         removeNotification(id);
-      }, notificationWithDefaults.duration);
+      }, duration);
     }
     
     return id;
-  };
+  }, []);
   
-  // Remove notification
-  const removeNotification = (id) => {
-    setNotifications((prev) => prev.filter((notification) => notification.id !== id));
-  };
+  // Remove a notification by ID
+  const removeNotification = useCallback((id) => {
+    setNotifications(prev => prev.filter(notification => notification.id !== id));
+  }, []);
+  
+  // Success notification
+  const success = useCallback((message, options = {}) => {
+    return addNotification({
+      type: 'success',
+      message,
+      ...options
+    });
+  }, [addNotification]);
+  
+  // Error notification
+  const error = useCallback((message, options = {}) => {
+    return addNotification({
+      type: 'error',
+      message,
+      ...options
+    });
+  }, [addNotification]);
+  
+  // Info notification
+  const info = useCallback((message, options = {}) => {
+    return addNotification({
+      type: 'info',
+      message,
+      ...options
+    });
+  }, [addNotification]);
+  
+  // Warning notification
+  const warning = useCallback((message, options = {}) => {
+    return addNotification({
+      type: 'warning',
+      message,
+      ...options
+    });
+  }, [addNotification]);
   
   // Clear all notifications
-  const clearNotifications = () => {
+  const clearAll = useCallback(() => {
     setNotifications([]);
-  };
-  
-  // Helper methods for different notification types
-  const info = (message, options = {}) => {
-    return addNotification({ type: 'info', message, ...options });
-  };
-  
-  const success = (message, options = {}) => {
-    return addNotification({ type: 'success', message, ...options });
-  };
-  
-  const warning = (message, options = {}) => {
-    return addNotification({ type: 'warning', message, ...options });
-  };
-  
-  const error = (message, options = {}) => {
-    return addNotification({ type: 'error', message, ...options });
-  };
+  }, []);
   
   // Context value
-  const value = {
+  const contextValue = {
     notifications,
+    success,
+    error,
+    info,
+    warning,
     addNotification,
     removeNotification,
-    clearNotifications,
-    info,
-    success,
-    warning,
-    error
+    clearAll
   };
   
   return (
-    <NotificationContext.Provider value={value}>
+    <NotificationContext.Provider value={contextValue}>
       {children}
-      <NotificationContainer />
+      <NotificationContainer 
+        notifications={notifications} 
+        removeNotification={removeNotification} 
+      />
     </NotificationContext.Provider>
   );
 };
 
 /**
- * NotificationContainer Component
- * Renders notifications using a portal
+ * useNotifications Hook
+ * Custom hook to use the notification context
  */
-const NotificationContainer = () => {
-  const { notifications, removeNotification } = useContext(NotificationContext);
-  const [container, setContainer] = useState(null);
+export const useNotifications = () => {
+  const context = useContext(NotificationContext);
+  if (context === undefined) {
+    throw new Error('useNotifications must be used within a NotificationProvider');
+  }
+  return context;
+};
+
+/**
+ * NotificationContainer Component
+ * Renders the notifications in a fixed container
+ */
+const NotificationContainer = ({ notifications, removeNotification }) => {
+  if (notifications.length === 0) {
+    return null;
+  }
   
-  useEffect(() => {
-    // Create container element if it doesn't exist
-    let element = document.getElementById('notification-container');
-    
-    if (!element) {
-      element = document.createElement('div');
-      element.id = 'notification-container';
-      document.body.appendChild(element);
-    }
-    
-    setContainer(element);
-    
-    // Cleanup function
-    return () => {
-      if (document.getElementById('notification-container')) {
-        document.body.removeChild(element);
-      }
-    };
-  }, []);
-  
-  if (!container) return null;
-  
-  return createPortal(
-    <div className="notifications-wrapper">
-      {notifications.map((notification) => (
-        <Notification
-          key={notification.id}
-          notification={notification}
+  return (
+    <div className="notification-container">
+      {notifications.map(notification => (
+        <NotificationItem 
+          key={notification.id} 
+          notification={notification} 
           onClose={() => removeNotification(notification.id)}
         />
       ))}
-    </div>,
-    container
+    </div>
   );
 };
 
 /**
- * Notification Component
+ * NotificationItem Component
  * Renders a single notification
  */
-const Notification = ({ notification, onClose }) => {
-  const { id, type, title, message } = notification;
+const NotificationItem = ({ notification, onClose }) => {
+  const { type, message, title } = notification;
   
+  // Auto-close effect
   useEffect(() => {
-    // Track when notification was rendered
-    const startTime = Date.now();
-    
-    return () => {
-      // Log long-lived notifications (potential memory leaks)
-      const duration = Date.now() - startTime;
-      if (duration > 10000) {
-        console.warn(`Notification ${id} lived for ${duration}ms. Possible memory leak.`);
-      }
-    };
-  }, [id]);
+    // If we decide to use a progress bar in the future
+    // we can use this for cleanup
+    return () => {};
+  }, [notification.duration]);
   
-  // Get icon based on notification type
+  // Notification icon based on type
   const getIcon = () => {
     switch (type) {
       case 'success':
         return (
-          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
             <polyline points="22 4 12 14.01 9 11.01"></polyline>
           </svg>
         );
-      case 'warning':
-        return (
-          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-            <line x1="12" y1="9" x2="12" y2="13"></line>
-            <line x1="12" y1="17" x2="12.01" y2="17"></line>
-          </svg>
-        );
       case 'error':
         return (
-          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="15" y1="9" x2="9" y2="15"></line>
             <line x1="9" y1="9" x2="15" y2="15"></line>
           </svg>
         );
+      case 'warning':
+        return (
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        );
       case 'info':
       default:
         return (
-          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="12" y1="16" x2="12" y2="12"></line>
             <line x1="12" y1="8" x2="12.01" y2="8"></line>
@@ -198,18 +192,16 @@ const Notification = ({ notification, onClose }) => {
   };
   
   return (
-    <div className={`notification notification-${type}`}>
+    <div className={`notification-item notification-${type}`}>
       <div className="notification-icon">
         {getIcon()}
       </div>
-      
       <div className="notification-content">
         {title && <div className="notification-title">{title}</div>}
         <div className="notification-message">{message}</div>
       </div>
-      
       <button className="notification-close" onClick={onClose}>
-        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" strokeWidth="2">
           <line x1="18" y1="6" x2="6" y2="18"></line>
           <line x1="6" y1="6" x2="18" y2="18"></line>
         </svg>
@@ -218,51 +210,4 @@ const Notification = ({ notification, onClose }) => {
   );
 };
 
-// Export the hook for using notifications
-export const useNotifications = () => {
-  const context = useContext(NotificationContext);
-  
-  if (!context) {
-    throw new Error('useNotifications must be used within a NotificationProvider');
-  }
-  
-  return context;
-};
-
-// Export singleton for direct imports
-export const notifications = {
-  info: (message, options) => {
-    console.warn('Notifications not initialized yet. Fallback to console.');
-    console.info(message);
-  },
-  success: (message, options) => {
-    console.warn('Notifications not initialized yet. Fallback to console.');
-    console.log(message);
-  },
-  warning: (message, options) => {
-    console.warn('Notifications not initialized yet. Fallback to console.');
-    console.warn(message);
-  },
-  error: (message, options) => {
-    console.warn('Notifications not initialized yet. Fallback to console.');
-    console.error(message);
-  }
-};
-
-// Initialize the notification methods once the provider is mounted
-export const initializeNotifications = () => {
-  try {
-    const context = useContext(NotificationContext);
-    
-    if (context) {
-      notifications.info = context.info;
-      notifications.success = context.success;
-      notifications.warning = context.warning;
-      notifications.error = context.error;
-    }
-  } catch (error) {
-    console.error('Failed to initialize notifications:', error);
-  }
-};
-
-export default NotificationContext;
+export default NotificationProvider;

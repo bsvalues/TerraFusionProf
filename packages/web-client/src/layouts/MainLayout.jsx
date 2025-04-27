@@ -1,56 +1,45 @@
 /**
  * TerraFusionPro - Main Layout Component
- * Provides consistent layout structure for most application pages
+ * Primary layout for authenticated users with header, sidebar and footer
  */
 
-import React, { useEffect } from 'react';
+import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
-import Breadcrumbs from '../components/layout/Breadcrumbs';
 import Footer from '../components/layout/Footer';
-import { useAuth } from '../contexts/AuthContext';
-import { useTheme } from '../contexts/ThemeContext';
-import { initializeNotifications } from '../components/layout/NotificationCenter';
+import Breadcrumbs from '../components/layout/Breadcrumbs';
+import NotificationCenter from '../components/layout/NotificationCenter';
 
 /**
  * MainLayout Component
- * @param {Object} props - Component props
- * @param {boolean} props.fullWidth - Whether to use full width content area
- * @param {boolean} props.showBreadcrumbs - Whether to show breadcrumbs
- * @param {Object} props.breadcrumbProps - Props to pass to Breadcrumbs component
+ * Provides the application shell for authenticated pages
  */
-const MainLayout = ({
-  fullWidth = false,
-  showBreadcrumbs = true,
-  breadcrumbProps = {}
-}) => {
-  const { currentUser, checkAuthState } = useAuth();
-  const { theme } = useTheme();
+const MainLayout = () => {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   
-  // Check authentication state on mount
-  useEffect(() => {
-    checkAuthState();
-    initializeNotifications();
-  }, []);
+  const toggleSidebar = () => {
+    setSidebarOpen(!sidebarOpen);
+  };
   
   return (
-    <div className={`app-container ${theme}-theme`}>
-      <Header />
+    <div className="main-layout">
+      <Header toggleSidebar={toggleSidebar} />
       
-      <div className="main-content-wrapper">
-        <Sidebar />
+      <div className="content-container">
+        <Sidebar isOpen={sidebarOpen} />
         
-        <main className={`main-content ${fullWidth ? 'full-width' : ''}`}>
-          {showBreadcrumbs && <Breadcrumbs {...breadcrumbProps} />}
+        <main className={`main-content ${sidebarOpen ? '' : 'full-width'}`}>
+          <Breadcrumbs />
           
-          <div className="content-container">
+          <div className="page-content">
             <Outlet />
           </div>
-          
-          <Footer />
         </main>
       </div>
+      
+      <NotificationCenter />
+      <Footer />
     </div>
   );
 };

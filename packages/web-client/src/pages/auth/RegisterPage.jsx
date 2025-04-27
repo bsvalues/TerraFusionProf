@@ -1,9 +1,9 @@
 /**
  * TerraFusionPro - Register Page
- * Provides user registration interface
+ * Allows new users to create an account
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../components/layout/NotificationCenter';
@@ -18,134 +18,149 @@ const RegisterPage = () => {
     email: '',
     password: '',
     confirmPassword: '',
-    company: '',
-    role: 'appraiser',
     agreeTerms: false
   });
-  
-  const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState('');
   
-  const { register, isAuthenticated, error: authError } = useAuth();
+  const { register, error: authError } = useAuth();
   const notifications = useNotifications();
   const navigate = useNavigate();
   
-  // If already authenticated, redirect to dashboard
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [isAuthenticated, navigate]);
-  
-  // Handle input change
+  // Handle input changes
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+    const newValue = type === 'checkbox' ? checked : value;
+    
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: newValue
     }));
     
-    // Clear field-specific error when user starts typing
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
+    // Check password strength when password changes
+    if (name === 'password') {
+      evaluatePasswordStrength(value);
     }
   };
   
-  // Validate form
-  const validateForm = () => {
-    const newErrors = {};
-    
-    // Required fields
-    if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
-    if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
-    if (!formData.email.trim()) newErrors.email = 'Email is required';
-    if (!formData.password) newErrors.password = 'Password is required';
-    if (!formData.confirmPassword) newErrors.confirmPassword = 'Please confirm your password';
-    
-    // Email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (formData.email && !emailRegex.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
+  // Evaluate password strength
+  const evaluatePasswordStrength = (password) => {
+    if (!password) {
+      setPasswordStrength('');
+      return;
     }
     
-    // Password strength
-    if (formData.password && formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters long';
-    }
+    // Calculate password strength
+    let strength = 0;
     
-    // Password match
-    if (formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
+    // Length check
+    if (password.length >= 8) strength += 1;
+    if (password.length >= 12) strength += 1;
     
-    // Terms agreement
-    if (!formData.agreeTerms) {
-      newErrors.agreeTerms = 'You must agree to the terms and conditions';
-    }
+    // Character variety checks
+    if (/[A-Z]/.test(password)) strength += 1;
+    if (/[a-z]/.test(password)) strength += 1;
+    if (/[0-9]/.test(password)) strength += 1;
+    if (/[^A-Za-z0-9]/.test(password)) strength += 1;
     
-    return newErrors;
+    // Set strength label
+    if (strength < 3) {
+      setPasswordStrength('weak');
+    } else if (strength < 5) {
+      setPasswordStrength('medium');
+    } else {
+      setPasswordStrength('strong');
+    }
+  };
+  
+  // Render password strength indicator
+  const renderPasswordStrength = () => {
+    if (!passwordStrength) return null;
+    
+    return (
+      <div className={`password-strength ${passwordStrength}`}>
+        <div className="strength-bar"></div>
+        <div className="strength-label">{passwordStrength}</div>
+      </div>
+    );
   };
   
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validate form
-    const formErrors = validateForm();
-    if (Object.keys(formErrors).length > 0) {
-      setErrors(formErrors);
+    // Form validation
+    if (!formData.firstName || !formData.lastName) {
+      notifications.error('Please enter your full name');
+      return;
+    }
+    
+    if (!formData.email) {
+      notifications.error('Please enter your email address');
+      return;
+    }
+    
+    if (!formData.password) {
+      notifications.error('Please enter a password');
+      return;
+    }
+    
+    if (formData.password.length < 8) {
+      notifications.error('Password must be at least 8 characters long');
+      return;
+    }
+    
+    if (formData.password !== formData.confirmPassword) {
+      notifications.error('Passwords do not match');
+      return;
+    }
+    
+    if (!formData.agreeTerms) {
+      notifications.error('You must agree to the terms and conditions');
       return;
     }
     
     try {
       setIsSubmitting(true);
       
-      // Prepare data for API
-      const userData = {
+      // Register new user
+      await register({
         firstName: formData.firstName,
         lastName: formData.lastName,
         email: formData.email,
-        password: formData.password,
-        company: formData.company,
-        role: formData.role
-      };
+        password: formData.password
+      });
       
-      // Register user
-      await register(userData);
-      
-      // Success message
-      notifications.success('Registration successful! Welcome to TerraFusionPro.');
-      
-      // Navigate to dashboard
-      navigate('/dashboard', { replace: true });
+      // Redirect to login with success message
+      navigate('/auth/login', { 
+        replace: true,
+        state: { message: 'Registration successful! Please sign in with your new account.' }
+      });
     } catch (error) {
-      // Error is handled by auth context, but we might want to reset the form
       console.error('Registration failed:', error);
+      // Error is handled by auth context
     } finally {
       setIsSubmitting(false);
     }
   };
   
   return (
-    <div className="register-page">
-      <div className="register-container">
-        <div className="register-header">
+    <div className="auth-page">
+      <div className="auth-container">
+        <div className="auth-header">
           <img 
             src="/assets/images/terrafusion-logo.svg" 
             alt="TerraFusionPro Logo" 
-            className="register-logo" 
+            className="auth-logo" 
           />
-          <h1 className="register-title">Create Your Account</h1>
-          <p className="register-subtitle">
-            Join TerraFusionPro to streamline your property valuation workflow
+          <h1 className="auth-title">Create Your Account</h1>
+          <p className="auth-subtitle">
+            Join TerraFusionPro to streamline your real estate valuation
           </p>
         </div>
         
         {authError && (
-          <div className="register-error">
+          <div className="auth-error">
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
               <circle cx="12" cy="12" r="10"></circle>
               <line x1="12" y1="8" x2="12" y2="12"></line>
@@ -155,7 +170,7 @@ const RegisterPage = () => {
           </div>
         )}
         
-        <form onSubmit={handleSubmit} className="register-form">
+        <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-row">
             <div className="form-group">
               <label htmlFor="firstName" className="form-label">First Name</label>
@@ -163,13 +178,13 @@ const RegisterPage = () => {
                 type="text"
                 id="firstName"
                 name="firstName"
-                className={`form-control ${errors.firstName ? 'is-invalid' : ''}`}
+                className="form-control"
                 value={formData.firstName}
                 onChange={handleChange}
                 placeholder="Enter your first name"
                 required
+                autoFocus
               />
-              {errors.firstName && <div className="invalid-feedback">{errors.firstName}</div>}
             </div>
             
             <div className="form-group">
@@ -178,13 +193,12 @@ const RegisterPage = () => {
                 type="text"
                 id="lastName"
                 name="lastName"
-                className={`form-control ${errors.lastName ? 'is-invalid' : ''}`}
+                className="form-control"
                 value={formData.lastName}
                 onChange={handleChange}
                 placeholder="Enter your last name"
                 required
               />
-              {errors.lastName && <div className="invalid-feedback">{errors.lastName}</div>}
             </div>
           </div>
           
@@ -194,81 +208,67 @@ const RegisterPage = () => {
               type="email"
               id="email"
               name="email"
-              className={`form-control ${errors.email ? 'is-invalid' : ''}`}
+              className="form-control"
               value={formData.email}
               onChange={handleChange}
               placeholder="Enter your email"
               required
             />
-            {errors.email && <div className="invalid-feedback">{errors.email}</div>}
-          </div>
-          
-          <div className="form-row">
-            <div className="form-group">
-              <label htmlFor="password" className="form-label">Password</label>
-              <input
-                type="password"
-                id="password"
-                name="password"
-                className={`form-control ${errors.password ? 'is-invalid' : ''}`}
-                value={formData.password}
-                onChange={handleChange}
-                placeholder="Create a password"
-                required
-              />
-              {errors.password && <div className="invalid-feedback">{errors.password}</div>}
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="confirmPassword" className="form-label">Confirm Password</label>
-              <input
-                type="password"
-                id="confirmPassword"
-                name="confirmPassword"
-                className={`form-control ${errors.confirmPassword ? 'is-invalid' : ''}`}
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                placeholder="Confirm your password"
-                required
-              />
-              {errors.confirmPassword && <div className="invalid-feedback">{errors.confirmPassword}</div>}
-            </div>
           </div>
           
           <div className="form-group">
-            <label htmlFor="company" className="form-label">Company (Optional)</label>
+            <label htmlFor="password" className="form-label">Password</label>
             <input
-              type="text"
-              id="company"
-              name="company"
+              type="password"
+              id="password"
+              name="password"
               className="form-control"
-              value={formData.company}
+              value={formData.password}
               onChange={handleChange}
-              placeholder="Enter your company name"
+              placeholder="Create a password"
+              required
             />
+            {renderPasswordStrength()}
+            <div className="password-requirements">
+              <p>Password must:</p>
+              <ul>
+                <li className={formData.password.length >= 8 ? 'met' : ''}>
+                  Be at least 8 characters long
+                </li>
+                <li className={/[A-Z]/.test(formData.password) ? 'met' : ''}>
+                  Include at least one uppercase letter
+                </li>
+                <li className={/[0-9]/.test(formData.password) ? 'met' : ''}>
+                  Include at least one number
+                </li>
+                <li className={/[^A-Za-z0-9]/.test(formData.password) ? 'met' : ''}>
+                  Include at least one special character
+                </li>
+              </ul>
+            </div>
           </div>
           
           <div className="form-group">
-            <label htmlFor="role" className="form-label">Your Role</label>
-            <select
-              id="role"
-              name="role"
+            <label htmlFor="confirmPassword" className="form-label">Confirm Password</label>
+            <input
+              type="password"
+              id="confirmPassword"
+              name="confirmPassword"
               className="form-control"
-              value={formData.role}
+              value={formData.confirmPassword}
               onChange={handleChange}
+              placeholder="Confirm your password"
               required
-            >
-              <option value="appraiser">Appraiser</option>
-              <option value="analyst">Real Estate Analyst</option>
-              <option value="broker">Broker/Agent</option>
-              <option value="lender">Lender</option>
-              <option value="investor">Investor</option>
-              <option value="other">Other</option>
-            </select>
+            />
+            {formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword && (
+              <div className="password-mismatch">
+                Passwords do not match
+              </div>
+            )}
           </div>
           
-          <div className="form-group terms-agreement">
-            <label className={`checkbox-label ${errors.agreeTerms ? 'is-invalid' : ''}`}>
+          <div className="form-group form-checkbox">
+            <label className="checkbox-label">
               <input
                 type="checkbox"
                 name="agreeTerms"
@@ -278,43 +278,54 @@ const RegisterPage = () => {
               />
               <span className="checkbox-text">
                 I agree to the{' '}
-                <Link to="/terms" className="terms-link">Terms of Service</Link>
+                <Link to="/terms" className="auth-link">Terms of Service</Link>
                 {' '}and{' '}
-                <Link to="/privacy" className="privacy-link">Privacy Policy</Link>
+                <Link to="/privacy" className="auth-link">Privacy Policy</Link>
               </span>
             </label>
-            {errors.agreeTerms && <div className="invalid-feedback">{errors.agreeTerms}</div>}
           </div>
           
           <button 
             type="submit" 
-            className="register-button"
+            className="btn btn-primary auth-submit-button"
             disabled={isSubmitting}
           >
             {isSubmitting ? 'Creating Account...' : 'Create Account'}
           </button>
-        </form>
-        
-        <div className="register-footer">
-          <p>
-            Already have an account?{' '}
+          
+          <div className="auth-links">
+            <span>Already have an account?</span>
             <Link to="/auth/login" className="login-link">
               Sign In
             </Link>
-          </p>
-        </div>
-      </div>
-      
-      <div className="register-image-container">
-        <div className="image-overlay">
-          <div className="overlay-content">
-            <h2>Join Our Community</h2>
-            <p>
-              Connect with thousands of professionals using 
-              TerraFusionPro to streamline their property 
-              valuation workflows and make data-driven decisions.
-            </p>
           </div>
+        </form>
+        
+        <div className="auth-divider">
+          <span>or sign up with</span>
+        </div>
+        
+        <div className="auth-social-buttons">
+          <button type="button" className="social-button">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
+              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+            </svg>
+            <span>Sign up with GitHub</span>
+          </button>
+          
+          <button type="button" className="social-button">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
+              <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
+            </svg>
+            <span>Sign up with Facebook</span>
+          </button>
+          
+          <button type="button" className="social-button">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" strokeWidth="2">
+              <path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"></path>
+            </svg>
+            <span>Sign up with Twitter</span>
+          </button>
         </div>
       </div>
     </div>
