@@ -1,118 +1,135 @@
-/**
- * TerraFusionPro - App Routes
- * Defines the application's routing structure
- */
-
-import React from 'react';
+import React, { useContext } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import AuthContext from '../contexts/AuthContext';
 
-// Layouts
+// Import layouts
 import MainLayout from '../layouts/MainLayout';
 import MinimalLayout from '../layouts/MinimalLayout';
 
-// Auth Pages
-import LoginPage from '../pages/auth/LoginPage';
-import RegisterPage from '../pages/auth/RegisterPage';
-import ForgotPasswordPage from '../pages/auth/ForgotPasswordPage';
-import ResetPasswordPage from '../pages/auth/ResetPasswordPage';
+// Import pages
+import Dashboard from '../pages/Dashboard';
+import Properties from '../pages/Properties';
+import Analysis from '../pages/Analysis';
+import Reports from '../pages/Reports';
+import Forms from '../pages/Forms';
+import Settings from '../pages/Settings';
+import Profile from '../pages/Profile';
 
-// Error Pages
-import NotFoundPage from '../pages/errors/NotFoundPage';
+// Auth pages
+import Login from '../pages/auth/Login';
+import Register from '../pages/auth/Register';
+import ForgotPassword from '../pages/auth/ForgotPassword';
+import ResetPassword from '../pages/auth/ResetPassword';
 
-// Protected Route Component
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+// Error pages
+import NotFound from '../pages/error/NotFound';
+
+// Private route wrapper
+const PrivateRoute = ({ children }) => {
+  const { isAuthenticated, loading } = useContext(AuthContext);
   
-  // Show loading state while checking authentication
-  if (isLoading) {
-    return <div className="loading-screen">Loading...</div>;
+  if (loading) {
+    return <div>Loading...</div>;
   }
   
-  // Redirect to login if not authenticated
-  if (!isAuthenticated) {
-    return <Navigate to="/auth/login" replace />;
-  }
-  
-  return children;
+  return isAuthenticated ? children : <Navigate to="/login" />;
 };
 
-// Public Route Component (accessible only when not authenticated)
-const PublicRoute = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-  
-  // Show loading state while checking authentication
-  if (isLoading) {
-    return <div className="loading-screen">Loading...</div>;
-  }
-  
-  // Redirect to dashboard if already authenticated
-  if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
-  }
-  
-  return children;
-};
-
-// Main Routes Component
+/**
+ * Application Routes Component
+ * Defines the routing structure of the application
+ */
 const AppRoutes = () => {
   return (
     <Routes>
-      {/* Auth Routes (public) */}
-      <Route path="/auth/*" element={<MinimalLayout />}>
-        <Route path="login" element={
-          <PublicRoute>
-            <LoginPage />
-          </PublicRoute>
-        } />
-        <Route path="register" element={
-          <PublicRoute>
-            <RegisterPage />
-          </PublicRoute>
-        } />
-        <Route path="forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="reset-password" element={<ResetPasswordPage />} />
-      </Route>
+      {/* Auth routes */}
+      <Route path="/login" element={
+        <MinimalLayout>
+          <Login />
+        </MinimalLayout>
+      } />
       
-      {/* Main App Routes (protected) */}
-      <Route path="/*" element={
-        <ProtectedRoute>
-          <MainLayout />
-        </ProtectedRoute>
-      }>
-        {/* Dashboard Routes */}
-        <Route path="dashboard" element={<div>Dashboard</div>} />
-        
-        {/* Properties Routes */}
-        <Route path="properties" element={<div>Properties</div>} />
-        <Route path="properties/:id" element={<div>Property Details</div>} />
-        
-        {/* Reports Routes */}
-        <Route path="reports" element={<div>Reports</div>} />
-        <Route path="reports/:id" element={<div>Report Details</div>} />
-        
-        {/* Forms Routes */}
-        <Route path="forms" element={<div>Forms</div>} />
-        <Route path="forms/:id" element={<div>Form Details</div>} />
-        
-        {/* Analysis Routes */}
-        <Route path="analysis" element={<div>Analysis</div>} />
-        <Route path="analysis/:id" element={<div>Analysis Details</div>} />
-        
-        {/* User Profile Routes */}
-        <Route path="profile" element={<div>User Profile</div>} />
-        <Route path="settings" element={<div>Settings</div>} />
-        
-        {/* Help/Support Routes */}
-        <Route path="help" element={<div>Help Center</div>} />
-        <Route path="help/:topic" element={<div>Help Topic</div>} />
-        
-        {/* Default redirect for the app root */}
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        
-        {/* 404 for any unmatched routes */}
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
+      <Route path="/register" element={
+        <MinimalLayout>
+          <Register />
+        </MinimalLayout>
+      } />
+      
+      <Route path="/forgot-password" element={
+        <MinimalLayout>
+          <ForgotPassword />
+        </MinimalLayout>
+      } />
+      
+      <Route path="/reset-password/:token" element={
+        <MinimalLayout>
+          <ResetPassword />
+        </MinimalLayout>
+      } />
+      
+      {/* Main application routes (protected) */}
+      <Route path="/" element={
+        <PrivateRoute>
+          <MainLayout>
+            <Dashboard />
+          </MainLayout>
+        </PrivateRoute>
+      } />
+      
+      <Route path="/properties" element={
+        <PrivateRoute>
+          <MainLayout>
+            <Properties />
+          </MainLayout>
+        </PrivateRoute>
+      } />
+      
+      <Route path="/analysis" element={
+        <PrivateRoute>
+          <MainLayout>
+            <Analysis />
+          </MainLayout>
+        </PrivateRoute>
+      } />
+      
+      <Route path="/reports" element={
+        <PrivateRoute>
+          <MainLayout>
+            <Reports />
+          </MainLayout>
+        </PrivateRoute>
+      } />
+      
+      <Route path="/forms" element={
+        <PrivateRoute>
+          <MainLayout>
+            <Forms />
+          </MainLayout>
+        </PrivateRoute>
+      } />
+      
+      <Route path="/settings" element={
+        <PrivateRoute>
+          <MainLayout>
+            <Settings />
+          </MainLayout>
+        </PrivateRoute>
+      } />
+      
+      <Route path="/profile" element={
+        <PrivateRoute>
+          <MainLayout>
+            <Profile />
+          </MainLayout>
+        </PrivateRoute>
+      } />
+      
+      {/* Error routes */}
+      <Route path="*" element={
+        <MinimalLayout>
+          <NotFound />
+        </MinimalLayout>
+      } />
     </Routes>
   );
 };

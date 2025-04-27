@@ -1,30 +1,29 @@
-/**
- * TerraFusionPro - Main App Component
- * Entry point for the React application
- */
-
 import React from 'react';
-import { BrowserRouter } from 'react-router-dom';
-import { ThemeProvider } from './contexts/ThemeContext';
+import { BrowserRouter as Router } from 'react-router-dom';
+
+// Import contexts
 import { AuthProvider } from './contexts/AuthContext';
-import { NotificationProvider } from './components/layout/NotificationCenter';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+
+// Import routes
 import AppRoutes from './routes/AppRoutes';
 
 /**
- * App Component
- * Provides context providers and wraps the application with BrowserRouter
+ * Main App component
+ * Wraps the application with required providers and context
  */
 const App = () => {
   return (
-    <BrowserRouter>
+    <Router>
       <ThemeProvider>
-        <NotificationProvider>
-          <AuthProvider>
+        <AuthProvider>
+          <NotificationProvider>
             <AppRoutes />
-          </AuthProvider>
-        </NotificationProvider>
+          </NotificationProvider>
+        </AuthProvider>
       </ThemeProvider>
-    </BrowserRouter>
+    </Router>
   );
 };
 

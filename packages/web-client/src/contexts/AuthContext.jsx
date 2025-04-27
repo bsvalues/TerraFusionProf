@@ -1,76 +1,94 @@
-/**
- * TerraFusionPro - Auth Context
- * Provides authentication state and functions across the application
- */
-
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
 
 // Create Auth Context
 const AuthContext = createContext();
 
 /**
- * AuthProvider Component
- * Provides authentication state and functions
+ * Authentication Provider Component
+ * Manages user authentication state and provides login/logout functionality
  */
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authToken, setAuthToken] = useState(localStorage.getItem('auth-token'));
   
-  // Check if user is authenticated on mount
+  // Check if user is already logged in on mount
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        
-        // If we have a token, try to get the user profile
-        if (authToken) {
-          const response = await fetch('/api/auth/profile', {
-            headers: {
-              'Authorization': `Bearer ${authToken}`
-            }
-          });
-          
-          if (response.ok) {
-            const userData = await response.json();
-            setCurrentUser(userData);
-            setIsAuthenticated(true);
-          } else {
-            // Token is invalid, clear auth state
-            localStorage.removeItem('auth-token');
-            setAuthToken(null);
-            setCurrentUser(null);
-            setIsAuthenticated(false);
-          }
-        } else {
-          // No token, user is not authenticated
-          setCurrentUser(null);
-          setIsAuthenticated(false);
-        }
-      } catch (err) {
-        console.error('Error checking authentication status:', err);
-        setError('Failed to authenticate. Please try again.');
-        setIsAuthenticated(false);
-        setCurrentUser(null);
-        localStorage.removeItem('auth-token');
-        setAuthToken(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
     checkAuthStatus();
-  }, [authToken]);
+  }, []);
   
-  // Login function
+  // Check if there's a valid auth token in localStorage
+  const checkAuthStatus = async () => {
+    try {
+      setLoading(true);
+      
+      // Get token from localStorage
+      const token = localStorage.getItem('authToken');
+      
+      // If no token, user is not logged in
+      if (!token) {
+        setCurrentUser(null);
+        setLoading(false);
+        return;
+      }
+      
+      // Validate token and get user info
+      const response = await fetch('/api/auth/validate', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        // Token is invalid or expired
+        localStorage.removeItem('authToken');
+        setCurrentUser(null);
+        setLoading(false);
+        return;
+      }
+      
+      // Token is valid, set current user
+      const data = await response.json();
+      setCurrentUser(data.user);
+      
+    } catch (err) {
+      console.error('Auth check error:', err);
+      // On error, assume user is not authenticated
+      localStorage.removeItem('authToken');
+      setCurrentUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Login user
   const login = async (email, password) => {
     try {
-      setIsLoading(true);
+      setLoading(true);
       setError(null);
       
+      // For development, use a mock login if the API is not available
+      if (process.env.NODE_ENV === 'development' && 
+          (email === 'demo@terrafusionpro.com' && password === 'demo1234')) {
+        
+        const mockUser = {
+          id: 'user-1',
+          firstName: 'Demo',
+          lastName: 'User',
+          email: 'demo@terrafusionpro.com',
+          role: 'admin',
+          createdAt: new Date().toISOString()
+        };
+        
+        localStorage.setItem('authToken', 'mock-token-for-development');
+        setCurrentUser(mockUser);
+        setLoading(false);
+        return { success: true, user: mockUser };
+      }
+      
+      // Real API call
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
@@ -82,29 +100,29 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to login');
+        setError(data.message || 'Login failed');
+        return { success: false, error: data.message };
       }
       
-      // Save token to localStorage
-      localStorage.setItem('auth-token', data.token);
-      setAuthToken(data.token);
+      // Store token and user data
+      localStorage.setItem('authToken', data.token);
       setCurrentUser(data.user);
-      setIsAuthenticated(true);
       
-      return data;
+      return { success: true, user: data.user };
+      
     } catch (err) {
       console.error('Login error:', err);
-      setError(err.message || 'Failed to login. Please check your credentials.');
-      throw err;
+      setError(err.message || 'An unexpected error occurred');
+      return { success: false, error: err.message };
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
   
-  // Register function
+  // Register new user
   const register = async (userData) => {
     try {
-      setIsLoading(true);
+      setLoading(true);
       setError(null);
       
       const response = await fetch('/api/auth/register', {
@@ -118,55 +136,39 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to register');
+        setError(data.message || 'Registration failed');
+        return { success: false, error: data.message };
       }
       
-      // Auto-login after successful registration
-      return login(userData.email, userData.password);
+      // Auto login after successful registration
+      localStorage.setItem('authToken', data.token);
+      setCurrentUser(data.user);
+      
+      return { success: true, user: data.user };
+      
     } catch (err) {
       console.error('Registration error:', err);
-      setError(err.message || 'Failed to register. Please try again.');
-      throw err;
+      setError(err.message || 'An unexpected error occurred');
+      return { success: false, error: err.message };
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
   
-  // Logout function
-  const logout = async () => {
-    try {
-      setIsLoading(true);
-      
-      // Call logout endpoint to invalidate the token on the server
-      if (authToken) {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${authToken}`
-          }
-        });
-      }
-      
-      // Clear auth state
-      localStorage.removeItem('auth-token');
-      setAuthToken(null);
-      setCurrentUser(null);
-      setIsAuthenticated(false);
-      setError(null);
-    } catch (err) {
-      console.error('Logout error:', err);
-    } finally {
-      setIsLoading(false);
-    }
+  // Logout user
+  const logout = () => {
+    localStorage.removeItem('authToken');
+    setCurrentUser(null);
+    return { success: true };
   };
   
-  // Password reset request function
-  const resetPassword = async (email) => {
+  // Request password reset
+  const requestPasswordReset = async (email) => {
     try {
-      setIsLoading(true);
+      setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/auth/forgot-password', {
+      const response = await fetch('/api/auth/request-reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -177,75 +179,117 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to send password reset email');
+        setError(data.message || 'Password reset request failed');
+        return { success: false, error: data.message };
       }
       
-      return data;
+      return { success: true, message: data.message };
+      
     } catch (err) {
       console.error('Password reset request error:', err);
-      setError(err.message || 'Failed to send password reset email. Please try again.');
-      throw err;
+      setError(err.message || 'An unexpected error occurred');
+      return { success: false, error: err.message };
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
   
-  // Update user profile function
-  const updateProfile = async (profileData) => {
+  // Reset password with token
+  const resetPassword = async (token, newPassword) => {
     try {
-      setIsLoading(true);
+      setLoading(true);
       setError(null);
       
-      if (!authToken) {
-        throw new Error('Not authenticated');
-      }
-      
-      const response = await fetch('/api/auth/profile', {
-        method: 'PUT',
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(profileData)
+        body: JSON.stringify({ token, newPassword })
       });
       
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to update profile');
+        setError(data.message || 'Password reset failed');
+        return { success: false, error: data.message };
       }
       
-      // Update current user data
-      setCurrentUser(prevUser => ({
-        ...prevUser,
-        ...data.user
-      }));
+      return { success: true, message: data.message };
       
-      return data;
     } catch (err) {
-      console.error('Profile update error:', err);
-      setError(err.message || 'Failed to update profile. Please try again.');
-      throw err;
+      console.error('Password reset error:', err);
+      setError(err.message || 'An unexpected error occurred');
+      return { success: false, error: err.message };
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
   
-  // Change password function
-  const changePassword = async (currentPassword, newPassword) => {
+  // Update user profile
+  const updateProfile = async (userData) => {
     try {
-      setIsLoading(true);
+      setLoading(true);
       setError(null);
       
-      if (!authToken) {
-        throw new Error('Not authenticated');
+      const token = localStorage.getItem('authToken');
+      
+      if (!token) {
+        setError('Authentication required');
+        return { success: false, error: 'Authentication required' };
+      }
+      
+      const response = await fetch('/api/users/profile', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(userData)
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setError(data.message || 'Profile update failed');
+        return { success: false, error: data.message };
+      }
+      
+      // Update current user data
+      setCurrentUser(prev => ({
+        ...prev,
+        ...userData
+      }));
+      
+      return { success: true, user: data.user || { ...currentUser, ...userData } };
+      
+    } catch (err) {
+      console.error('Profile update error:', err);
+      setError(err.message || 'An unexpected error occurred');
+      return { success: false, error: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Change password
+  const changePassword = async (currentPassword, newPassword) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const token = localStorage.getItem('authToken');
+      
+      if (!token) {
+        setError('Authentication required');
+        return { success: false, error: 'Authentication required' };
       }
       
       const response = await fetch('/api/auth/change-password', {
-        method: 'PUT',
+        method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ currentPassword, newPassword })
       });
@@ -253,48 +297,41 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to change password');
+        setError(data.message || 'Password change failed');
+        return { success: false, error: data.message };
       }
       
-      return data;
+      return { success: true, message: data.message };
+      
     } catch (err) {
       console.error('Password change error:', err);
-      setError(err.message || 'Failed to change password. Please try again.');
-      throw err;
+      setError(err.message || 'An unexpected error occurred');
+      return { success: false, error: err.message };
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
   
-  const authContextValue = {
+  // Return auth context value
+  const value = {
     currentUser,
-    isLoading,
+    loading,
     error,
-    isAuthenticated,
-    authToken,
     login,
-    register,
     logout,
+    register,
+    requestPasswordReset,
     resetPassword,
     updateProfile,
-    changePassword
+    changePassword,
+    isAuthenticated: !!currentUser
   };
   
   return (
-    <AuthContext.Provider value={authContextValue}>
-      {children}
+    <AuthContext.Provider value={value}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
 
-/**
- * useAuth Hook
- * Custom hook to use the auth context
- */
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+export default AuthContext;
