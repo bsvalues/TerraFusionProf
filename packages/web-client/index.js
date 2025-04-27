@@ -1,181 +1,111 @@
 /**
- * TerraFusionPro Web Client - Static File Server
+ * TerraFusionPro Web Client
  * 
- * Simple HTTP server using Node.js http module with ES modules
+ * This is the entry point for the web client application.
+ * It sets up an Express server to serve the React application.
  */
 
-import http from 'http';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+const express = require('express');
+const path = require('path');
+const cors = require('cors');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
+// Create Express app
+const app = express();
 const PORT = process.env.PORT || 5000;
 
-// MIME types for different file extensions
-const CONTENT_TYPES = {
-  '.html': 'text/html',
-  '.css': 'text/css',
-  '.js': 'text/javascript',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml'
-};
+// Enable CORS
+app.use(cors());
 
-// Get the current directory (for ES modules)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Set up middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Root directory for the web client
-const webClientDir = __dirname;
+// Serve static files from the React app
+app.use(express.static(path.join(__dirname, 'build')));
 
-// Public directory for static files
-const publicDir = path.join(webClientDir, 'public');
-
-// API Gateway URL for proxying
-const API_GATEWAY_URL = 'http://localhost:5002';
-
-// Ensure the public directory exists
-if (!fs.existsSync(publicDir)) {
-  fs.mkdirSync(publicDir, { recursive: true });
-}
-
-// Function to proxy requests to the API Gateway
-function proxyRequest(req, res, targetUrl) {
-  const url = new URL(targetUrl);
-  
-  const options = {
-    hostname: url.hostname,
-    port: url.port,
-    path: url.pathname + url.search,
-    method: req.method,
-    headers: {
-      ...req.headers,
-      host: url.host
-    }
-  };
-  
-  console.log(`Proxying to API Gateway: ${targetUrl}`);
-  
-  const proxyReq = http.request(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(res);
-  });
-  
-  proxyReq.on('error', (err) => {
-    console.error('Proxy error:', err);
-    res.writeHead(502, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      error: 'Bad Gateway',
-      message: 'Failed to proxy request to API Gateway',
-      details: err.message
-    }));
-  });
-  
-  req.pipe(proxyReq);
-}
-
-// Create the HTTP server
-const server = http.createServer((req, res) => {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.writeHead(200);
-    res.end();
-    return;
+// Set up API proxies to route requests to the appropriate services
+app.use('/api/auth', createProxyMiddleware({ 
+  target: 'http://localhost:5004', 
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/auth': '/auth'
   }
-  
-  // Check if this is an API request
-  if (req.url.startsWith('/api/')) {
-    // Proxy to API Gateway
-    proxyRequest(req, res, `${API_GATEWAY_URL}${req.url}`);
-    return;
+}));
+
+app.use('/api/users', createProxyMiddleware({ 
+  target: 'http://localhost:5004', 
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/users': '/users'
   }
-  
-  // Look for specific routes first
-  if (req.url === '/upload' || req.url === '/upload/') {
-    // Serve the upload.html file for the /upload route
-    fs.readFile(path.join(publicDir, 'upload.html'), (err, content) => {
-      if (err) {
-        res.writeHead(500);
-        res.end('Server Error: Could not find upload.html');
-        return;
-      }
-      
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(content, 'utf8');
-    });
-    return;
-  } else if (req.url === '/sync' || req.url === '/sync/') {
-    // Serve the sync.html file for the /sync route
-    fs.readFile(path.join(publicDir, 'sync.html'), (err, content) => {
-      if (err) {
-        res.writeHead(500);
-        res.end('Server Error: Could not find sync.html');
-        return;
-      }
-      
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(content, 'utf8');
-    });
-    return;
+}));
+
+app.use('/api/properties', createProxyMiddleware({ 
+  target: 'http://localhost:5003', 
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/properties': '/properties'
   }
-  
-  // Parse the URL for static files
-  let filePath = path.join(publicDir, req.url === '/' ? 'index.html' : req.url);
-  
-  // Get the file extension
-  const extname = path.extname(filePath);
-  
-  // Default content type
-  let contentType = 'text/html';
-  
-  // Set content type based on file extension
-  if (extname in CONTENT_TYPES) {
-    contentType = CONTENT_TYPES[extname];
+}));
+
+app.use('/api/reports', createProxyMiddleware({ 
+  target: 'http://localhost:5007', 
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/reports': '/reports'
   }
-  
-  // Read the file
-  fs.readFile(filePath, (err, content) => {
-    if (err) {
-      if (err.code === 'ENOENT') {
-        // If the file doesn't exist, check if it's a direct route (SPA support)
-        if (extname === '') {
-          // Serve index.html for routes without specific handlers
-          fs.readFile(path.join(publicDir, 'index.html'), (err, content) => {
-            if (err) {
-              res.writeHead(500);
-              res.end('Server Error: Could not find index.html');
-              return;
-            }
-            
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(content, 'utf8');
-          });
-        } else {
-          // File not found
-          res.writeHead(404);
-          res.end('Not Found');
-        }
-      } else {
-        // Server error
-        res.writeHead(500);
-        res.end(`Server Error: ${err.code}`);
-      }
-    } else {
-      // Success
-      res.writeHead(200, { 'Content-Type': contentType });
-      res.end(content, 'utf8');
-    }
+}));
+
+app.use('/api/forms', createProxyMiddleware({ 
+  target: 'http://localhost:5005', 
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/forms': '/forms'
+  }
+}));
+
+app.use('/api/analysis', createProxyMiddleware({ 
+  target: 'http://localhost:5006', 
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/analysis': '/analysis'
+  }
+}));
+
+// For GraphQL queries, we'll use the Apollo Gateway
+app.use('/graphql', createProxyMiddleware({ 
+  target: 'http://localhost:4000', 
+  changeOrigin: true
+}));
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', service: 'web-client' });
+});
+
+// The "catchall" handler: for any request that doesn't match one above,
+// send back the React app's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build/index.html'));
+});
+
+// Start the server
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`TerraFusionPro Web Client running on port ${PORT}`);
+});
+
+// Handle server shutdown gracefully
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
   });
 });
 
-// Start server
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`TerraFusionPro Web Client running on port ${PORT}`);
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+  });
 });
