@@ -1,80 +1,115 @@
 /**
  * TerraFusionPro - Breadcrumbs Component
- * Displays the current navigation path to provide context
+ * Displays hierarchical navigation path for current page
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-const Breadcrumbs = ({ currentPath }) => {
-  // Generate breadcrumbs based on current path
-  const generateBreadcrumbs = (path) => {
-    const segments = path.split('/').filter(segment => segment);
-    
-    // Start with home
-    const breadcrumbs = [
-      { label: 'Home', path: '/' }
-    ];
-    
-    // Build up paths for each segment
-    let currentPath = '';
-    segments.forEach(segment => {
-      currentPath += `/${segment}`;
-      
-      // Format segment name for display (capitalize, replace hyphens with spaces)
-      let label = segment
-        .replace(/-/g, ' ')
-        .replace(/^\w|\s\w/g, match => match.toUpperCase());
-      
-      // Special cases for segment names
-      if (segment === 'properties' && currentPath === '/properties') {
-        label = 'Properties';
-      } else if (segment === 'reports' && currentPath === '/reports') {
-        label = 'Reports';
-      } else if (segment === 'new') {
-        if (currentPath.includes('properties')) {
-          label = 'Add Property';
-        } else if (currentPath.includes('reports')) {
-          label = 'Create Report';
-        }
-      } else if (/^\d+$/.test(segment)) {
-        // If segment is a number (ID), use a generic label
-        if (currentPath.includes('properties')) {
-          label = 'Property Details';
-        } else if (currentPath.includes('reports')) {
-          label = 'Report Details';
-        }
-      }
-      
-      breadcrumbs.push({ label, path: currentPath });
-    });
-    
-    return breadcrumbs;
-  };
+/**
+ * Breadcrumbs Component
+ * @param {Object} props - Component props
+ * @param {Object} props.routeMapping - Custom mapping of routes to breadcrumb labels
+ * @param {Object} props.dynamicSegments - Object of dynamic segment values (e.g., { id: 'Property Name' })
+ * @param {boolean} props.showHomeIcon - Whether to show home icon for first item
+ */
+const Breadcrumbs = ({
+  routeMapping = {},
+  dynamicSegments = {},
+  showHomeIcon = true
+}) => {
+  const location = useLocation();
+  const [breadcrumbs, setBreadcrumbs] = useState([]);
   
-  const breadcrumbs = generateBreadcrumbs(currentPath);
+  useEffect(() => {
+    // Generate breadcrumbs based on current location
+    const generateBreadcrumbs = () => {
+      const pathSegments = location.pathname.split('/').filter(Boolean);
+      
+      // Start with home
+      const crumbs = [
+        {
+          label: 'Home',
+          path: '/',
+          isLast: pathSegments.length === 0
+        }
+      ];
+      
+      // Build up the breadcrumbs for each path segment
+      let currentPath = '';
+      
+      pathSegments.forEach((segment, index) => {
+        currentPath += `/${segment}`;
+        
+        // Check if this segment is a dynamic parameter (e.g., :id)
+        const isDynamicSegment = segment.match(/^[0-9a-f]{8,}$/i);
+        const isLastSegment = index === pathSegments.length - 1;
+        
+        let label;
+        
+        // Try to find a specific mapping for this path
+        if (routeMapping[currentPath]) {
+          label = routeMapping[currentPath];
+        } 
+        // Use the dynamic segment label if this appears to be a parameter
+        else if (isDynamicSegment && dynamicSegments[segment]) {
+          label = dynamicSegments[segment];
+        }
+        // Default to formatted segment name
+        else {
+          label = segment
+            .split('-')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+        }
+        
+        crumbs.push({
+          label,
+          path: currentPath,
+          isLast: isLastSegment
+        });
+      });
+      
+      return crumbs;
+    };
+    
+    setBreadcrumbs(generateBreadcrumbs());
+  }, [location, routeMapping, dynamicSegments]);
+  
+  if (breadcrumbs.length <= 1) {
+    return null; // Don't show breadcrumbs on home page
+  }
   
   return (
-    <nav className="breadcrumbs" aria-label="Breadcrumbs">
+    <nav className="breadcrumbs" aria-label="Breadcrumb">
       <ol className="breadcrumb-list">
-        {breadcrumbs.map((crumb, index) => {
-          const isLast = index === breadcrumbs.length - 1;
-          
-          return (
-            <li key={crumb.path} className="breadcrumb-item">
-              {isLast ? (
-                <span className="breadcrumb-current">{crumb.label}</span>
-              ) : (
-                <>
-                  <Link to={crumb.path} className="breadcrumb-link">
-                    {crumb.label}
-                  </Link>
-                  <span className="breadcrumb-separator">›</span>
-                </>
-              )}
-            </li>
-          );
-        })}
+        {breadcrumbs.map((crumb, index) => (
+          <li 
+            key={crumb.path} 
+            className={`breadcrumb-item ${crumb.isLast ? 'active' : ''}`}
+          >
+            {index === 0 && showHomeIcon ? (
+              <Link to={crumb.path} aria-label="Home">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+              </Link>
+            ) : crumb.isLast ? (
+              <span>{crumb.label}</span>
+            ) : (
+              <Link to={crumb.path}>{crumb.label}</Link>
+            )}
+            
+            {!crumb.isLast && (
+              <span className="breadcrumb-separator">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+              </span>
+            )}
+          </li>
+        ))}
       </ol>
     </nav>
   );
