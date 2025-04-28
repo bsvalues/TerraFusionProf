@@ -43,6 +43,7 @@ const indexHtml = `<!DOCTYPE html>
   <title>TerraFusionPro - Real Estate Appraisal Platform</title>
   <link rel="stylesheet" href="/css/global.css">
   <link rel="stylesheet" href="/css/property.css">
+  <link rel="stylesheet" href="/css/workflow.css">
   <style>
     /* Basic reset */
     * {

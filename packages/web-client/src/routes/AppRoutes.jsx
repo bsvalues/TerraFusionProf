@@ -14,6 +14,7 @@ import Reports from '../pages/Reports';
 import Forms from '../pages/Forms';
 import Settings from '../pages/Settings';
 import Profile from '../pages/Profile';
+import Workflow from '../pages/Workflow';
 
 // Auth pages
 import Login from '../pages/auth/Login';
