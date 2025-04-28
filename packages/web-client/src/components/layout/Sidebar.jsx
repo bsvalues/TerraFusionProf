@@ -91,6 +91,13 @@ const Sidebar = () => {
       ]
     },
     {
+      id: 'workflow',
+      label: 'Workflow',
+      icon: '⏱️',
+      path: '/workflow',
+      hasChildren: false
+    },
+    {
       id: 'settings',
       label: 'Settings',
       icon: '⚙️',

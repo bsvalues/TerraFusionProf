@@ -125,6 +125,14 @@ const AppRoutes = () => {
         </PrivateRoute>
       } />
       
+      <Route path="/workflow" element={
+        <PrivateRoute>
+          <MainLayout>
+            <Workflow />
+          </MainLayout>
+        </PrivateRoute>
+      } />
+      
       {/* Error routes */}
       <Route path="*" element={
         <MinimalLayout>
