@@ -228,7 +228,14 @@ const setupGateway = async () => {
         
         await server.listen({ port: 4000 });
         console.log('🚀 Apollo Gateway ready at http://localhost:4000/');
-        startHealthCheckServer();
+        // Start a simple health check HTTP server on port 4001
+        const healthServer = http.createServer((req, res) => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'healthy', timestamp: new Date().toISOString() }));
+        });
+        healthServer.listen(4001, () => {
+          console.log('Health check server running on port 4001');
+        });
         return;
       } catch (error) {
         console.error('Failed to start Apollo Federation Gateway:', error);
@@ -325,28 +332,68 @@ const startServer = async () => {
     // Set up the gateway based on available services
     const apolloServer = await setupGateway();
     
-    // Start the server
-    const { url } = await apolloServer.listen({ port: PORT });
-    console.log(`🚀 Apollo Gateway ready at ${url}`);
-    
-    // Create a simple Express server for health checks
-    const healthServer = http.createServer((req, res) => {
-      if (req.url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          status: 'healthy',
-          service: 'apollo-federation-gateway',
-          timestamp: new Date().toISOString()
-        }));
-      } else {
-        res.writeHead(404);
-        res.end();
+    // Try various ports to avoid conflicts
+    let apolloServerStarted = false;
+    for (const port of [4000, 4002, 4004, 4006]) {
+      try {
+        const { url } = await apolloServer.listen({ port });
+        console.log(`🚀 Apollo Gateway ready at ${url}`);
+        apolloServerStarted = true;
+        break;
+      } catch (portError) {
+        console.error(`Port ${port} conflict:`, portError.message);
       }
-    });
+    }
     
-    healthServer.listen(4001, () => {
-      console.log('Health check server running on port 4001');
-    });
+    if (!apolloServerStarted) {
+      console.error('Failed to start Apollo server on any port');
+    }
+    
+    // Try various ports for health check server
+    let healthServerStarted = false;
+    for (const healthPort of [4001, 4003, 4005, 4007]) {
+      try {
+        const healthServer = http.createServer((req, res) => {
+          if (req.url === '/health') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              status: 'healthy',
+              service: 'apollo-federation-gateway',
+              timestamp: new Date().toISOString()
+            }));
+          } else {
+            res.writeHead(404);
+            res.end();
+          }
+        });
+        
+        await new Promise((resolve, reject) => {
+          healthServer.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+              console.log(`Health port ${healthPort} in use, trying next...`);
+              healthServer.close();
+              resolve(false);
+            } else {
+              reject(err);
+            }
+          });
+          
+          healthServer.listen(healthPort, () => {
+            console.log(`Health check server running on port ${healthPort}`);
+            resolve(true);
+          });
+        });
+        
+        healthServerStarted = true;
+        break;
+      } catch (err) {
+        console.error(`Failed to start health server on port ${healthPort}:`, err.message);
+      }
+    }
+    
+    if (!healthServerStarted) {
+      console.error('Failed to start health check server on any port');
+    }
     
     return apolloServer;
   } catch (error) {
