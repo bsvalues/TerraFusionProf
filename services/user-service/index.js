@@ -35,6 +35,66 @@ app.get('/health', (req, res) => {
   });
 });
 
+// GraphQL endpoint for Apollo Federation - minimal implementation
+app.post('/graphql', async (req, res) => {
+  try {
+    // Simple schema for now - will be expanded in later phases
+    const response = {
+      data: {
+        _service: {
+          sdl: `
+            type Query {
+              me: User
+              users: [User]
+            }
+            
+            type User @key(fields: "id") {
+              id: ID!
+              email: String!
+              firstName: String!
+              lastName: String!
+              role: String!
+              company: String
+              createdAt: String!
+            }
+          `
+        }
+      }
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('GraphQL error:', error);
+    res.status(500).json({ errors: [{ message: error.message }] });
+  }
+});
+
+// Also handle GET requests for schema introspection
+app.get('/graphql', (req, res) => {
+  res.json({
+    data: {
+      _service: {
+        sdl: `
+          type Query {
+            me: User
+            users: [User]
+          }
+          
+          type User @key(fields: "id") {
+            id: ID!
+            email: String!
+            firstName: String!
+            lastName: String!
+            role: String!
+            company: String
+            createdAt: String!
+          }
+        `
+      }
+    }
+  });
+});
+
 // Authentication middleware
 const authenticate = async (req, res, next) => {
   try {

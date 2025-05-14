@@ -29,6 +29,106 @@ app.get('/health', (req, res) => {
   });
 });
 
+// GraphQL endpoint for Apollo Federation - minimal implementation
+app.post('/graphql', async (req, res) => {
+  try {
+    // Simple schema for now - will be expanded in later phases
+    const response = {
+      data: {
+        _service: {
+          sdl: `
+            type Query {
+              report(id: ID!): Report
+              reports(limit: Int, offset: Int): [Report]
+              reportTemplate(id: ID!): ReportTemplate
+              reportTemplates(limit: Int, offset: Int): [ReportTemplate]
+            }
+            
+            type Report @key(fields: "id") {
+              id: ID!
+              title: String!
+              description: String
+              propertyId: ID!
+              status: String!
+              assignedTo: ID
+              clientId: ID
+              template: ReportTemplate
+              data: String!
+              created: String!
+              updated: String
+              createdBy: ID!
+              pdfUrl: String
+            }
+            
+            type ReportTemplate @key(fields: "id") {
+              id: ID!
+              name: String!
+              description: String
+              structure: String!
+              isActive: Boolean!
+              created: String!
+              updated: String
+              version: String!
+              category: String!
+            }
+          `
+        }
+      }
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('GraphQL error:', error);
+    res.status(500).json({ errors: [{ message: error.message }] });
+  }
+});
+
+// Also handle GET requests for schema introspection
+app.get('/graphql', (req, res) => {
+  res.json({
+    data: {
+      _service: {
+        sdl: `
+          type Query {
+            report(id: ID!): Report
+            reports(limit: Int, offset: Int): [Report]
+            reportTemplate(id: ID!): ReportTemplate
+            reportTemplates(limit: Int, offset: Int): [ReportTemplate]
+          }
+          
+          type Report @key(fields: "id") {
+            id: ID!
+            title: String!
+            description: String
+            propertyId: ID!
+            status: String!
+            assignedTo: ID
+            clientId: ID
+            template: ReportTemplate
+            data: String!
+            created: String!
+            updated: String
+            createdBy: ID!
+            pdfUrl: String
+          }
+          
+          type ReportTemplate @key(fields: "id") {
+            id: ID!
+            name: String!
+            description: String
+            structure: String!
+            isActive: Boolean!
+            created: String!
+            updated: String
+            version: String!
+            category: String!
+          }
+        `
+      }
+    }
+  });
+});
+
 // Generate a unique report number
 function generateReportNumber() {
   const prefix = Math.random() > 0.5 ? 'RA' : 'CA'; // Randomly choose Residential or Commercial

@@ -181,6 +181,98 @@ app.get('/health', (req, res) => {
   });
 });
 
+// GraphQL endpoint for Apollo Federation - minimal implementation
+app.post('/graphql', async (req, res) => {
+  try {
+    // Simple schema for now - will be expanded in later phases
+    const response = {
+      data: {
+        _service: {
+          sdl: `
+            type Query {
+              form(id: ID!): Form
+              forms(limit: Int, offset: Int): [Form]
+              formSubmission(id: ID!): FormSubmission
+              formSubmissions(formId: ID, limit: Int, offset: Int): [FormSubmission]
+            }
+            
+            type Form @key(fields: "id") {
+              id: ID!
+              name: String!
+              description: String
+              schema: String!
+              type: String!
+              isActive: Boolean!
+              createdAt: String!
+              updatedAt: String
+              version: Int!
+            }
+            
+            type FormSubmission @key(fields: "id") {
+              id: ID!
+              formId: ID!
+              reportId: ID
+              form: Form
+              data: String!
+              completionStatus: Float!
+              submittedBy: ID!
+              submittedAt: String!
+              lastUpdated: String
+            }
+          `
+        }
+      }
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('GraphQL error:', error);
+    res.status(500).json({ errors: [{ message: error.message }] });
+  }
+});
+
+// Also handle GET requests for schema introspection
+app.get('/graphql', (req, res) => {
+  res.json({
+    data: {
+      _service: {
+        sdl: `
+          type Query {
+            form(id: ID!): Form
+            forms(limit: Int, offset: Int): [Form]
+            formSubmission(id: ID!): FormSubmission
+            formSubmissions(formId: ID, limit: Int, offset: Int): [FormSubmission]
+          }
+          
+          type Form @key(fields: "id") {
+            id: ID!
+            name: String!
+            description: String
+            schema: String!
+            type: String!
+            isActive: Boolean!
+            createdAt: String!
+            updatedAt: String
+            version: Int!
+          }
+          
+          type FormSubmission @key(fields: "id") {
+            id: ID!
+            formId: ID!
+            reportId: ID
+            form: Form
+            data: String!
+            completionStatus: Float!
+            submittedBy: ID!
+            submittedAt: String!
+            lastUpdated: String
+          }
+        `
+      }
+    }
+  });
+});
+
 // Get all forms
 app.get('/forms', async (req, res) => {
   try {

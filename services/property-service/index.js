@@ -30,6 +30,94 @@ app.get('/health', (req, res) => {
   });
 });
 
+// GraphQL endpoint for Apollo Federation - minimal implementation
+app.post('/graphql', async (req, res) => {
+  try {
+    // Simple schema for now - will be expanded in later phases
+    const response = {
+      data: {
+        _service: {
+          sdl: `
+            type Query {
+              property(id: ID!): Property
+              properties(limit: Int, offset: Int): [Property]
+            }
+            
+            type Property @key(fields: "id") {
+              id: ID!
+              address: String!
+              city: String!
+              state: String!
+              zipCode: String!
+              propertyType: String!
+              yearBuilt: Int
+              bedrooms: Float
+              bathrooms: Float
+              buildingSize: Float
+              lotSize: Float
+              images: [PropertyImage]
+              createdAt: String!
+            }
+            
+            type PropertyImage {
+              id: ID!
+              url: String!
+              caption: String
+              type: String!
+              isPrimary: Boolean!
+            }
+          `
+        }
+      }
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('GraphQL error:', error);
+    res.status(500).json({ errors: [{ message: error.message }] });
+  }
+});
+
+// Also handle GET requests for schema introspection
+app.get('/graphql', (req, res) => {
+  res.json({
+    data: {
+      _service: {
+        sdl: `
+          type Query {
+            property(id: ID!): Property
+            properties(limit: Int, offset: Int): [Property]
+          }
+          
+          type Property @key(fields: "id") {
+            id: ID!
+            address: String!
+            city: String!
+            state: String!
+            zipCode: String!
+            propertyType: String!
+            yearBuilt: Int
+            bedrooms: Float
+            bathrooms: Float
+            buildingSize: Float
+            lotSize: Float
+            images: [PropertyImage]
+            createdAt: String!
+          }
+          
+          type PropertyImage {
+            id: ID!
+            url: String!
+            caption: String
+            type: String!
+            isPrimary: Boolean!
+          }
+        `
+      }
+    }
+  });
+});
+
 // Get all properties
 app.get('/properties', async (req, res) => {
   try {
