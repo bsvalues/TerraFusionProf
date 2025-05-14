@@ -38,31 +38,62 @@ app.get('/health', (req, res) => {
 // GraphQL endpoint for Apollo Federation - minimal implementation
 app.post('/graphql', async (req, res) => {
   try {
-    // Simple schema for now - will be expanded in later phases
-    const response = {
-      data: {
-        _service: {
-          sdl: `
-            type Query {
-              me: User
-              users: [User]
-            }
-            
-            type User @key(fields: "id") {
-              id: ID!
-              email: String!
-              firstName: String!
-              lastName: String!
-              role: String!
-              company: String
-              createdAt: String!
-            }
-          `
+    // Check if this is a schema request (_service field)
+    if (req.body && req.body.query && req.body.query.includes('_service')) {
+      // Return the schema definition
+      const response = {
+        data: {
+          _service: {
+            sdl: `
+              type Query {
+                me: User
+                users: [User]
+              }
+              
+              type User @key(fields: "id") {
+                id: ID!
+                email: String!
+                firstName: String!
+                lastName: String!
+                role: String!
+                company: String
+                createdAt: String!
+              }
+            `
+          }
         }
-      }
-    };
+      };
+      
+      res.json(response);
+      return;
+    }
     
-    res.json(response);
+    // Check if this is a users query
+    if (req.body && req.body.query && req.body.query.includes('users')) {
+      // Fetch users from database
+      const usersData = await find(tables.USERS, {}, { limit: 100 });
+      
+      // Format the response
+      const users = usersData.map(user => ({
+        id: user.id.toString(),
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        company: user.company || null,
+        createdAt: user.created_at.toISOString()
+      }));
+      
+      res.json({
+        data: {
+          users: users
+        }
+      });
+      return;
+    }
+    
+    // If no recognized query, return empty response
+    res.json({ data: {} });
   } catch (error) {
     console.error('GraphQL error:', error);
     res.status(500).json({ errors: [{ message: error.message }] });
@@ -70,7 +101,35 @@ app.post('/graphql', async (req, res) => {
 });
 
 // Also handle GET requests for schema introspection
-app.get('/graphql', (req, res) => {
+app.get('/graphql', async (req, res) => {
+  // Check if this has a query parameter
+  if (req.query && req.query.query) {
+    // For now, only support users query via GET
+    if (req.query.query.includes('users')) {
+      // Fetch users from database
+      const usersData = await find(tables.USERS, {}, { limit: 100 });
+      
+      // Format the response
+      const users = usersData.map(user => ({
+        id: user.id.toString(),
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        company: user.company || null,
+        createdAt: user.created_at.toISOString()
+      }));
+      
+      res.json({
+        data: {
+          users: users
+        }
+      });
+      return;
+    }
+  }
+
+  // Default to schema introspection
   res.json({
     data: {
       _service: {

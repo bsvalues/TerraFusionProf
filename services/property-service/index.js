@@ -33,45 +33,97 @@ app.get('/health', (req, res) => {
 // GraphQL endpoint for Apollo Federation - minimal implementation
 app.post('/graphql', async (req, res) => {
   try {
-    // Simple schema for now - will be expanded in later phases
-    const response = {
-      data: {
-        _service: {
-          sdl: `
-            type Query {
-              property(id: ID!): Property
-              properties(limit: Int, offset: Int): [Property]
-            }
-            
-            type Property @key(fields: "id") {
-              id: ID!
-              address: String!
-              city: String!
-              state: String!
-              zipCode: String!
-              propertyType: String!
-              yearBuilt: Int
-              bedrooms: Float
-              bathrooms: Float
-              buildingSize: Float
-              lotSize: Float
-              images: [PropertyImage]
-              createdAt: String!
-            }
-            
-            type PropertyImage {
-              id: ID!
-              url: String!
-              caption: String
-              type: String!
-              isPrimary: Boolean!
-            }
-          `
+    // Check if this is a schema request (_service field)
+    if (req.body && req.body.query && req.body.query.includes('_service')) {
+      // Return the schema definition
+      const response = {
+        data: {
+          _service: {
+            sdl: `
+              type Query {
+                property(id: ID!): Property
+                properties(limit: Int, offset: Int): [Property]
+              }
+              
+              type Property @key(fields: "id") {
+                id: ID!
+                address: String!
+                city: String!
+                state: String!
+                zipCode: String!
+                propertyType: String!
+                yearBuilt: Int
+                bedrooms: Float
+                bathrooms: Float
+                buildingSize: Float
+                lotSize: Float
+                images: [PropertyImage]
+                createdAt: String!
+              }
+              
+              type PropertyImage {
+                id: ID!
+                url: String!
+                caption: String
+                type: String!
+                isPrimary: Boolean!
+              }
+            `
+          }
         }
-      }
-    };
+      };
+      
+      res.json(response);
+      return;
+    }
     
-    res.json(response);
+    // Check if this is a properties query
+    if (req.body && req.body.query && req.body.query.includes('properties')) {
+      // Fetch properties from database
+      const propertiesData = await find(tables.PROPERTIES, {}, { limit: 100 });
+      
+      // Format the response to match GraphQL schema
+      const properties = await Promise.all(propertiesData.map(async property => {
+        // Get property images
+        const images = await find(tables.PROPERTY_IMAGES, { property_id: property.id });
+        
+        // Format images to match GraphQL schema
+        const formattedImages = images.map(image => ({
+          id: image.id.toString(),
+          url: image.url,
+          caption: image.caption || null,
+          type: image.type || 'exterior',
+          isPrimary: image.is_primary || false
+        }));
+        
+        // Return formatted property
+        return {
+          id: property.id.toString(),
+          address: property.address,
+          city: property.city,
+          state: property.state,
+          zipCode: property.zip_code,
+          propertyType: property.property_type,
+          yearBuilt: property.year_built,
+          bedrooms: property.bedrooms,
+          bathrooms: property.bathrooms,
+          buildingSize: property.building_size,
+          lotSize: property.lot_size,
+          images: formattedImages,
+          createdAt: property.created_at.toISOString()
+        };
+      }));
+      
+      res.json({
+        data: {
+          properties: properties
+        }
+      });
+      return;
+    }
+    
+    // If no recognized query, return empty response
+    res.json({ data: {} });
   } catch (error) {
     console.error('GraphQL error:', error);
     res.status(500).json({ errors: [{ message: error.message }] });
@@ -79,7 +131,56 @@ app.post('/graphql', async (req, res) => {
 });
 
 // Also handle GET requests for schema introspection
-app.get('/graphql', (req, res) => {
+app.get('/graphql', async (req, res) => {
+  // Check if this has a query parameter
+  if (req.query && req.query.query) {
+    // For now, only support properties query via GET
+    if (req.query.query.includes('properties')) {
+      // Fetch properties from database
+      const propertiesData = await find(tables.PROPERTIES, {}, { limit: 100 });
+      
+      // Format the response to match GraphQL schema
+      const properties = await Promise.all(propertiesData.map(async property => {
+        // Get property images
+        const images = await find(tables.PROPERTY_IMAGES, { property_id: property.id });
+        
+        // Format images to match GraphQL schema
+        const formattedImages = images.map(image => ({
+          id: image.id.toString(),
+          url: image.url,
+          caption: image.caption || null,
+          type: image.type || 'exterior',
+          isPrimary: image.is_primary || false
+        }));
+        
+        // Return formatted property
+        return {
+          id: property.id.toString(),
+          address: property.address,
+          city: property.city,
+          state: property.state,
+          zipCode: property.zip_code,
+          propertyType: property.property_type,
+          yearBuilt: property.year_built,
+          bedrooms: property.bedrooms,
+          bathrooms: property.bathrooms,
+          buildingSize: property.building_size,
+          lotSize: property.lot_size,
+          images: formattedImages,
+          createdAt: property.created_at.toISOString()
+        };
+      }));
+      
+      res.json({
+        data: {
+          properties: properties
+        }
+      });
+      return;
+    }
+  }
+
+  // Default to schema introspection
   res.json({
     data: {
       _service: {
