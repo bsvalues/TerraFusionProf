@@ -92,11 +92,11 @@ const externalApps = [
 
 // List of existing TerraFusion services with their current port configuration
 const existingServices = [
-  { name: 'user-service', url: 'http://localhost:5004/graphql' },
-  { name: 'property-service', url: 'http://localhost:5003/graphql' },
-  { name: 'form-service', url: 'http://localhost:5005/graphql' },
-  { name: 'analysis-service', url: 'http://localhost:5006/graphql' },
-  { name: 'report-service', url: 'http://localhost:5007/graphql' }
+  { name: 'user-service', url: 'http://0.0.0.0:5004/graphql' },
+  { name: 'property-service', url: 'http://0.0.0.0:5003/graphql' },
+  { name: 'form-service', url: 'http://0.0.0.0:5005/graphql' },
+  { name: 'analysis-service', url: 'http://0.0.0.0:5006/graphql' },
+  { name: 'report-service', url: 'http://0.0.0.0:5007/graphql' }
 ];
 
 // Combine all apps
@@ -191,8 +191,52 @@ const setupGateway = async () => {
     
     console.log(`Found ${availableCount} available services out of ${apps.length}`);
     
-    // For this demonstration, we'll use a local schema regardless of service availability
-    // since our services don't have actual GraphQL endpoints yet
+    // Try to use Apollo Federation if core services are available
+    const coreServices = ['user-service', 'property-service', 'form-service', 'analysis-service', 'report-service'];
+    const availableCoreServices = availableServices.filter(service => coreServices.includes(service.name));
+    
+    if (availableCoreServices.length >= 5) {
+      console.log('All core services are available. Setting up Apollo Federation Gateway.');
+      
+      try {
+        gateway = new ApolloGateway({
+          serviceList: availableCoreServices.map(service => ({
+            name: service.name,
+            url: service.url
+          })),
+          buildService: ({ name, url }) => {
+            console.log(`Building service for ${name} at ${url}`);
+            return new AuthDataSource({ url });
+          },
+          introspectionCache: 'persist',
+          experimental_didValidateSupergraphSdl: (superGraphSdl) => {
+            console.log('Validated supergraph SDL successfully');
+          }
+        });
+        
+        server = new ApolloServer({
+          gateway,
+          context: ({ req }) => {
+            // Get the token from the Authorization header
+            const token = req.headers.authorization || '';
+            return { token };
+          },
+          subscriptions: false,
+          playground: true,
+          introspection: true
+        });
+        
+        await server.listen({ port: 4000 });
+        console.log('🚀 Apollo Gateway ready at http://localhost:4000/');
+        startHealthCheckServer();
+        return;
+      } catch (error) {
+        console.error('Failed to start Apollo Federation Gateway:', error);
+        console.log('Falling back to local schema implementation');
+      }
+    }
+    
+    // Fallback to local schema implementation
     console.log('Using local schema for demonstration');
     
     // Enhanced typeDefs to include information about available services

@@ -29,6 +29,148 @@ app.get('/health', (req, res) => {
   });
 });
 
+// GraphQL endpoint for Apollo Federation - minimal implementation
+app.post('/graphql', async (req, res) => {
+  try {
+    // Simple schema for now - will be expanded in later phases
+    const response = {
+      data: {
+        _service: {
+          sdl: `
+            type Query {
+              comparable(id: ID!): Comparable
+              comparables(propertyId: ID!, limit: Int, offset: Int): [Comparable]
+              marketAnalysis(location: String!, propertyType: String!, timeframe: String): MarketAnalysis
+              propertyValuation(propertyId: ID!): PropertyValuation
+            }
+            
+            type Comparable @key(fields: "id") {
+              id: ID!
+              propertyId: ID!
+              comparablePropertyId: ID!
+              score: Float!
+              distance: Float
+              adjustments: [Adjustment]
+              adjustedValue: Float
+              status: String!
+              created: String!
+            }
+            
+            type Adjustment {
+              factor: String!
+              description: String!
+              amount: Float!
+              percentageChange: Float
+            }
+            
+            type MarketAnalysis @key(fields: "id") {
+              id: ID!
+              location: String!
+              propertyType: String!
+              timeframe: String!
+              medianPrice: Float!
+              averagePrice: Float!
+              pricePerSquareFoot: Float
+              inventoryLevels: Float
+              daysOnMarket: Float
+              listToSaleRatio: Float
+              marketType: String!
+              priceDirection: String!
+              demandLevel: String!
+              summary: String!
+              timestamp: String!
+            }
+            
+            type PropertyValuation @key(fields: "id") {
+              id: ID!
+              propertyId: ID!
+              estimatedValue: Float!
+              confidenceScore: Float!
+              approachType: String!
+              adjustmentsTotal: Float
+              reconciliationComments: String
+              date: String!
+              expirationDate: String
+            }
+          `
+        }
+      }
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('GraphQL error:', error);
+    res.status(500).json({ errors: [{ message: error.message }] });
+  }
+});
+
+// Also handle GET requests for schema introspection
+app.get('/graphql', (req, res) => {
+  res.json({
+    data: {
+      _service: {
+        sdl: `
+          type Query {
+            comparable(id: ID!): Comparable
+            comparables(propertyId: ID!, limit: Int, offset: Int): [Comparable]
+            marketAnalysis(location: String!, propertyType: String!, timeframe: String): MarketAnalysis
+            propertyValuation(propertyId: ID!): PropertyValuation
+          }
+          
+          type Comparable @key(fields: "id") {
+            id: ID!
+            propertyId: ID!
+            comparablePropertyId: ID!
+            score: Float!
+            distance: Float
+            adjustments: [Adjustment]
+            adjustedValue: Float
+            status: String!
+            created: String!
+          }
+          
+          type Adjustment {
+            factor: String!
+            description: String!
+            amount: Float!
+            percentageChange: Float
+          }
+          
+          type MarketAnalysis @key(fields: "id") {
+            id: ID!
+            location: String!
+            propertyType: String!
+            timeframe: String!
+            medianPrice: Float!
+            averagePrice: Float!
+            pricePerSquareFoot: Float
+            inventoryLevels: Float
+            daysOnMarket: Float
+            listToSaleRatio: Float
+            marketType: String!
+            priceDirection: String!
+            demandLevel: String!
+            summary: String!
+            timestamp: String!
+          }
+          
+          type PropertyValuation @key(fields: "id") {
+            id: ID!
+            propertyId: ID!
+            estimatedValue: Float!
+            confidenceScore: Float!
+            approachType: String!
+            adjustmentsTotal: Float
+            reconciliationComments: String
+            date: String!
+            expirationDate: String
+          }
+        `
+      }
+    }
+  });
+});
+
 /**
  * Calculate adjustments between subject and comparable properties
  * @param {Object} subject - Subject property
