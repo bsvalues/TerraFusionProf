@@ -175,6 +175,28 @@ const server = http.createServer((req, res) => {
     targetUrl = REPORT_SERVICE_URL + '/reports';
   }
   
+  // GraphQL service endpoints
+  else if (path === '/api/graphql/user') {
+    // Handle GraphQL requests to the User Service
+    return proxyGraphQLRequest(req, res, 'user');
+  }
+  else if (path === '/api/graphql/property') {
+    // Handle GraphQL requests to the Property Service
+    return proxyGraphQLRequest(req, res, 'property');
+  }
+  else if (path === '/api/graphql/form') {
+    // Handle GraphQL requests to the Form Service
+    return proxyGraphQLRequest(req, res, 'form');
+  }
+  else if (path === '/api/graphql/analysis') {
+    // Handle GraphQL requests to the Analysis Service
+    return proxyGraphQLRequest(req, res, 'analysis');
+  }
+  else if (path === '/api/graphql/report') {
+    // Handle GraphQL requests to the Report Service
+    return proxyGraphQLRequest(req, res, 'report');
+  }
+  
   // Integrated app routes - These routes allow access to the newly imported apps
   
   // TerraFusionSync routes
@@ -321,6 +343,42 @@ function proxyRequest(req, res, targetUrl, queryString = '') {
   req.on('end', () => {
     proxyReq.end();
   });
+}
+
+// Helper function to proxy GraphQL requests to the appropriate service
+function proxyGraphQLRequest(req, res, serviceName) {
+  let targetUrl = '';
+  
+  // Determine the target service URL based on service name
+  switch (serviceName) {
+    case 'user':
+      targetUrl = USER_SERVICE_URL + '/graphql';
+      break;
+    case 'property':
+      targetUrl = PROPERTY_SERVICE_URL + '/graphql';
+      break;
+    case 'form':
+      targetUrl = FORM_SERVICE_URL + '/graphql';
+      break;
+    case 'analysis':
+      targetUrl = ANALYSIS_SERVICE_URL + '/graphql';
+      break;
+    case 'report':
+      targetUrl = REPORT_SERVICE_URL + '/graphql';
+      break;
+    default:
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        error: 'Bad Request',
+        message: `Unknown service: ${serviceName}`,
+        timestamp: new Date().toISOString()
+      }));
+      return;
+  }
+  
+  console.log(`Proxying GraphQL request to service: ${serviceName} at URL: ${targetUrl}`);
+  proxyRequest(req, res, targetUrl);
 }
 
 // Start the server
