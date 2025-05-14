@@ -347,7 +347,7 @@ const indexHtml = `<!DOCTYPE html>
       });
     });
     
-    async function fetchServices() {
+    window.fetchServices = async function() {
       try {
         const response = await fetch('/api/status');
         if (!response.ok) {
@@ -391,11 +391,11 @@ const indexHtml = `<!DOCTYPE html>
       
       servicesGrid.innerHTML = '<div class="error-message">' +
                                 '<p>' + message + '</p>' +
-                                '<button class="button" onclick="fetchServices()">Try Again</button>' +
+                                '<button class="button" onclick="window.fetchServices()">Try Again</button>' +
                               '</div>';
     }
     
-    async function fetchProperties() {
+    window.fetchProperties = async function() {
       const propertiesContainer = document.getElementById('properties-container');
       
       // Show loading spinner
@@ -443,7 +443,7 @@ const indexHtml = `<!DOCTYPE html>
               propertiesHtml += '<p><strong>Baths:</strong> ' + property.bathrooms + '</p>';
             }
             
-            propertiesHtml += '<button class="button" onclick="alert(\'Property ID: ' + 
+            propertiesHtml += '<button class="button" onclick="window.alert(\'Property ID: ' + 
                               property.id + '\')">View Details</button>' +
                               '</div>';
           });
@@ -457,12 +457,12 @@ const indexHtml = `<!DOCTYPE html>
         console.error('Error fetching properties:', error);
         propertiesContainer.innerHTML = '<div class="error-message">' +
                                           '<p>Error loading properties: ' + error.message + '</p>' +
-                                          '<button class="button" onclick="fetchProperties()">Try Again</button>' +
+                                          '<button class="button" onclick="window.fetchProperties()">Try Again</button>' +
                                         '</div>';
       }
     }
     
-    async function fetchUsers() {
+    window.fetchUsers = async function() {
       const usersContainer = document.getElementById('users-container');
       
       // Show loading spinner
@@ -502,7 +502,7 @@ const indexHtml = `<!DOCTYPE html>
                           '<td>' + (user.role || 'N/A') + '</td>' +
                           '<td>' + (user.company || 'N/A') + '</td>' +
                           '<td>' +
-                            '<button class="button small" onclick="alert(\'User ID: ' + 
+                            '<button class="button small" onclick="window.alert(\'User ID: ' + 
                             user.id + '\')">Profile</button>' +
                           '</td>' +
                         '</tr>';
@@ -519,7 +519,7 @@ const indexHtml = `<!DOCTYPE html>
         console.error('Error fetching users:', error);
         usersContainer.innerHTML = '<div class="error-message">' +
                                     '<p>Error loading users: ' + error.message + '</p>' +
-                                    '<button class="button" onclick="fetchUsers()">Try Again</button>' +
+                                    '<button class="button" onclick="window.fetchUsers()">Try Again</button>' +
                                   '</div>';
       }
     }
