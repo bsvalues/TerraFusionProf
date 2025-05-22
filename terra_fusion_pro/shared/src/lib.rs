@@ -1,14 +1,22 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+pub mod models;
+pub mod utils;
+pub mod db;
+pub mod error;
+pub mod config;
+
+/// Re-export common types for convenience
+pub use error::AppError;
+pub use models::*;
+
+/// Initialize the logging system
+pub fn init_logging() {
+    env_logger::init();
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+        assert_eq!(2 + 2, 4);
     }
 }
