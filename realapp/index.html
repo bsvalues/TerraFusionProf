@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TerraFusionPro</title>
+  <title>TerraFusionPro - Real Estate Platform</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body {
@@ -212,51 +211,48 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     // Fetch properties
-    async function fetchProperties() {
-      try {
-        const response = await fetch('/api/properties');
-        const data = await response.json();
-        
+    fetch('/api/properties')
+      .then(response => response.json())
+      .then(data => {
         const propertiesContainer = document.getElementById('properties-container');
         
         if (data.properties && data.properties.length > 0) {
           let html = '';
           
           data.properties.forEach(property => {
-            html += `
-              <div class="col-md-6 col-lg-4">
-                <div class="card property-card">
-                  <img src="${property.imageUrl}" class="card-img-top property-img" alt="${property.address}">
-                  <div class="card-body">
-                    <h5 class="card-title">${property.address}</h5>
-                    <p class="card-subtitle mb-2 text-muted">${property.city}, ${property.state} ${property.zipCode}</p>
-                    <p class="price">$${property.price.toLocaleString()}</p>
-                    <div class="d-flex gap-2 mb-3">
-                      <span class="badge details-badge">${property.bedrooms} beds</span>
-                      <span class="badge details-badge">${property.bathrooms} baths</span>
-                      <span class="badge details-badge">${property.sqft.toLocaleString()} sqft</span>
-                    </div>
-                    <p class="card-text">${property.description}</p>
-                    <a href="#" class="btn btn-primary" onclick="alert('Property details for ID: ${property.id}')">View Details</a>
-                  </div>
-                </div>
-              </div>
-            `;
+            html += '<div class="col-md-6 col-lg-4 mb-4">' +
+                '<div class="card property-card">' +
+                  '<img src="' + property.imageUrl + '" class="card-img-top property-img" alt="' + property.address + '">' +
+                  '<div class="card-body">' +
+                    '<h5 class="card-title">' + property.address + '</h5>' +
+                    '<p class="card-subtitle mb-2 text-muted">' + property.city + ', ' + property.state + ' ' + property.zipCode + '</p>' +
+                    '<p class="price">$' + property.price.toLocaleString() + '</p>' +
+                    '<div class="d-flex gap-2 mb-3">' +
+                      '<span class="badge details-badge">' + property.bedrooms + ' beds</span>' +
+                      '<span class="badge details-badge">' + property.bathrooms + ' baths</span>' +
+                      '<span class="badge details-badge">' + property.sqft.toLocaleString() + ' sqft</span>' +
+                    '</div>' +
+                    '<p class="card-text">' + property.description + '</p>' +
+                    '<button class="btn btn-primary" onclick="viewDetails(' + property.id + ')">View Details</button>' +
+                  '</div>' +
+                '</div>' +
+              '</div>';
           });
           
           propertiesContainer.innerHTML = html;
         } else {
           propertiesContainer.innerHTML = '<div class="col-12"><p class="text-center">No properties found</p></div>';
         }
-      } catch (error) {
+      })
+      .catch(error => {
         console.error('Error loading properties:', error);
         document.getElementById('properties-container').innerHTML = 
           '<div class="col-12"><div class="alert alert-danger">Failed to load properties. Please try again later.</div></div>';
-      }
-    }
+      });
 
-    // Load properties when the page loads
-    document.addEventListener('DOMContentLoaded', fetchProperties);
+    function viewDetails(id) {
+      alert('View details for property ID: ' + id);
+    }
   </script>
 </body>
 </html>
