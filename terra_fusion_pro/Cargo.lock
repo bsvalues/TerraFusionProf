@@ -3263,6 +3263,31 @@ dependencies = [
 [[package]]
 name = "user_service"
 version = "0.1.0"
+dependencies = [
+ "actix-identity",
+ "actix-session",
+ "actix-web",
+ "async-graphql",
+ "async-graphql-actix-web",
+ "async-trait",
+ "base64 0.13.1",
+ "chrono",
+ "config",
+ "dotenv",
+ "env_logger",
+ "jsonwebtoken",
+ "log",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "shared",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+ "validator",
+]
 
 [[package]]
 name = "utf8_iter"
