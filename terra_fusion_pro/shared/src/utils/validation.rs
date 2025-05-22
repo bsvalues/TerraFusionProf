@@ -46,7 +46,7 @@ pub fn validate_struct<T: Validate>(data: &T) -> AppResult<()> {
 /// Validate an email address
 pub fn validate_email(email: &str) -> Result<(), ValidationError> {
     let email_regex = regex::Regex::new(
-        r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+        r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
     )
     .unwrap();
     
@@ -79,7 +79,8 @@ pub fn validate_password(password: &str) -> Result<(), ValidationError> {
     }
     
     // Check for at least one special character
-    let special_chars = regex::Regex::new(r"[!@#$%^&*(),.?\":{}|<>]").unwrap();
+    let special = r#"[!@#$%^&*(),.?:{}|<>]"#;
+    let special_chars = regex::Regex::new(special).unwrap();
     if !special_chars.is_match(password) {
         return Err(ValidationError::new("password_no_special_char"));
     }
@@ -89,7 +90,8 @@ pub fn validate_password(password: &str) -> Result<(), ValidationError> {
 
 /// Validate a phone number
 pub fn validate_phone(phone: &str) -> Result<(), ValidationError> {
-    let phone_regex = regex::Regex::new(r"^\+?[1-9]\d{1,14}$").unwrap();
+    let phone_pattern = r"^\+?[1-9]\d{1,14}$";
+    let phone_regex = regex::Regex::new(phone_pattern).unwrap();
     
     if !phone_regex.is_match(phone) {
         return Err(ValidationError::new("invalid_phone"));
@@ -100,10 +102,8 @@ pub fn validate_phone(phone: &str) -> Result<(), ValidationError> {
 
 /// Validate a URL
 pub fn validate_url(url: &str) -> Result<(), ValidationError> {
-    let url_regex = regex::Regex::new(
-        r"^(https?://)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)",
-    )
-    .unwrap();
+    let url_pattern = r"^(https?://)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)";
+    let url_regex = regex::Regex::new(url_pattern).unwrap();
     
     if !url_regex.is_match(url) {
         return Err(ValidationError::new("invalid_url"));
