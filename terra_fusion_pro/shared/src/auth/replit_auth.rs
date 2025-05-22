@@ -108,7 +108,7 @@ pub struct UserSession {
 /// Replit authentication client
 #[derive(Debug, Clone)]
 pub struct ReplitAuth {
-    config: ReplitAuthConfig,
+    pub config: ReplitAuthConfig,
     http_client: Client,
 }
 
