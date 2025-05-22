@@ -1,76 +1,113 @@
-use regex::Regex;
+use serde::{Deserialize, Serialize};
+use validator::{Validate, ValidationError, ValidationErrors};
+
 use crate::error::{AppError, AppResult};
 
+/// Validation error response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ValidationErrorResponse {
+    /// Error message
+    pub message: String,
+    /// Field errors
+    pub errors: std::collections::HashMap<String, Vec<String>>,
+}
+
+impl From<ValidationErrors> for ValidationErrorResponse {
+    fn from(errors: ValidationErrors) -> Self {
+        let mut error_map = std::collections::HashMap::new();
+        
+        for (field, field_errors) in errors.field_errors() {
+            let error_messages: Vec<String> = field_errors
+                .iter()
+                .map(|error| {
+                    error.message.clone().unwrap_or_else(|| "Invalid value".into()).to_string()
+                })
+                .collect();
+                
+            error_map.insert(field.to_string(), error_messages);
+        }
+        
+        Self {
+            message: "Validation failed".to_string(),
+            errors: error_map,
+        }
+    }
+}
+
+/// Validate a struct and return a result
+pub fn validate_struct<T: Validate>(data: &T) -> AppResult<()> {
+    data.validate()
+        .map_err(|e| {
+            let error_response = ValidationErrorResponse::from(e);
+            AppError::Validation(format!("{:?}", error_response))
+        })
+}
+
 /// Validate an email address
-pub fn validate_email(email: &str) -> bool {
-    let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
-    email_regex.is_match(email)
-}
-
-/// Validate a US phone number
-pub fn validate_phone(phone: &str) -> bool {
-    let phone_regex = Regex::new(r"^\+?1?\s*\(?[2-9][0-9]{2}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}$").unwrap();
-    phone_regex.is_match(phone)
-}
-
-/// Validate a US zip code
-pub fn validate_zip_code(zip: &str) -> bool {
-    let zip_regex = Regex::new(r"^\d{5}(-\d{4})?$").unwrap();
-    zip_regex.is_match(zip)
-}
-
-/// Validate a password meets minimum requirements
-pub fn validate_password(password: &str) -> AppResult<()> {
-    if password.len() < 8 {
-        return Err(AppError::Validation("Password must be at least 8 characters long".to_string()));
+pub fn validate_email(email: &str) -> Result<(), ValidationError> {
+    let email_regex = regex::Regex::new(
+        r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+    )
+    .unwrap();
+    
+    if !email_regex.is_match(email) {
+        return Err(ValidationError::new("invalid_email"));
     }
     
-    let has_uppercase = password.chars().any(|c| c.is_uppercase());
-    let has_lowercase = password.chars().any(|c| c.is_lowercase());
-    let has_digit = password.chars().any(|c| c.is_digit(10));
-    let has_special = password.chars().any(|c| !c.is_alphanumeric());
+    Ok(())
+}
+
+/// Validate a password
+pub fn validate_password(password: &str) -> Result<(), ValidationError> {
+    if password.len() < 8 {
+        return Err(ValidationError::new("password_too_short"));
+    }
     
-    if !has_uppercase || !has_lowercase || !has_digit || !has_special {
-        return Err(AppError::Validation(
-            "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character".to_string()
-        ));
+    // Check for at least one uppercase letter
+    if !password.chars().any(|c| c.is_ascii_uppercase()) {
+        return Err(ValidationError::new("password_no_uppercase"));
+    }
+    
+    // Check for at least one lowercase letter
+    if !password.chars().any(|c| c.is_ascii_lowercase()) {
+        return Err(ValidationError::new("password_no_lowercase"));
+    }
+    
+    // Check for at least one digit
+    if !password.chars().any(|c| c.is_ascii_digit()) {
+        return Err(ValidationError::new("password_no_digit"));
+    }
+    
+    // Check for at least one special character
+    let special_chars = regex::Regex::new(r"[!@#$%^&*(),.?\":{}|<>]").unwrap();
+    if !special_chars.is_match(password) {
+        return Err(ValidationError::new("password_no_special_char"));
+    }
+    
+    Ok(())
+}
+
+/// Validate a phone number
+pub fn validate_phone(phone: &str) -> Result<(), ValidationError> {
+    let phone_regex = regex::Regex::new(r"^\+?[1-9]\d{1,14}$").unwrap();
+    
+    if !phone_regex.is_match(phone) {
+        return Err(ValidationError::new("invalid_phone"));
     }
     
     Ok(())
 }
 
 /// Validate a URL
-pub fn validate_url(url: &str) -> bool {
-    let url_regex = Regex::new(r"^(https?|ftp)://[^\s/$.?#].[^\s]*$").unwrap();
-    url_regex.is_match(url)
-}
-
-/// Validate a year is within a reasonable range
-pub fn validate_year(year: i32) -> bool {
-    year >= 1800 && year <= 2100
-}
-
-/// Validate a latitude value
-pub fn validate_latitude(lat: f64) -> bool {
-    lat >= -90.0 && lat <= 90.0
-}
-
-/// Validate a longitude value
-pub fn validate_longitude(lng: f64) -> bool {
-    lng >= -180.0 && lng <= 180.0
-}
-
-/// Validate a price value is reasonable
-pub fn validate_price(price: f64) -> bool {
-    price >= 0.0 && price <= 1_000_000_000.0
-}
-
-/// Sanitize user input to prevent injection attacks
-pub fn sanitize_input(input: &str) -> String {
-    input
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('\"', "&quot;")
-        .replace('\'', "&#39;")
-        .replace('&', "&amp;")
+pub fn validate_url(url: &str) -> Result<(), ValidationError> {
+    let url_regex = regex::Regex::new(
+        r"^(https?://)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)",
+    )
+    .unwrap();
+    
+    if !url_regex.is_match(url) {
+        return Err(ValidationError::new("invalid_url"));
+    }
+    
+    Ok(())
 }
