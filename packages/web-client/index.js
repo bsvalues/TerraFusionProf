@@ -443,8 +443,8 @@ const indexHtml = `<!DOCTYPE html>
               propertiesHtml += '<p><strong>Baths:</strong> ' + property.bathrooms + '</p>';
             }
             
-            propertiesHtml += '<button class="button" onclick="window.alert(\'Property ID: ' + 
-                              property.id + '\')">View Details</button>' +
+            propertiesHtml += '<button class="button" onclick="alert(\'Property ID: \' + this.getAttribute(\'data-id\'))" data-id="' + 
+                              property.id + '">View Details</button>' +
                               '</div>';
           });
           
@@ -502,8 +502,8 @@ const indexHtml = `<!DOCTYPE html>
                           '<td>' + (user.role || 'N/A') + '</td>' +
                           '<td>' + (user.company || 'N/A') + '</td>' +
                           '<td>' +
-                            '<button class="button small" onclick="window.alert(\'User ID: ' + 
-                            user.id + '\')">Profile</button>' +
+                            '<button class="button small" onclick="window.alert(`User ID: ${' + 
+                            'user.id' + '}`)">Profile</button>' +
                           '</td>' +
                         '</tr>';
           });
