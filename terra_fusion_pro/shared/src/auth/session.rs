@@ -1,23 +1,23 @@
-use std::sync::Arc;
-
-use actix_session::{Session, SessionExt};
-use actix_web::{dev::Payload, Error, FromRequest, HttpMessage, HttpRequest};
-use futures::future::{ready, Ready};
+use actix_session::{Session, SessionGetError};
 use serde::{Deserialize, Serialize};
-use crate::auth::replit_auth::UserSession;
-use crate::error::AppError;
 
-/// Session data stored in cookies
-#[derive(Debug, Serialize, Deserialize, Clone)]
+use super::replit_auth::UserSession;
+
+/// Session data stored in cookies or database
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionData {
+    /// User session with tokens and claims
     pub user_session: Option<UserSession>,
+    /// Original URL for post-login redirect
+    pub original_url: Option<String>,
 }
 
 impl SessionData {
-    /// Create a new empty session
+    /// Create a new empty session data
     pub fn new() -> Self {
         Self {
             user_session: None,
+            original_url: None,
         }
     }
     
@@ -26,43 +26,61 @@ impl SessionData {
         self.user_session.is_some()
     }
     
-    /// Get the user ID if authenticated
+    /// Get the user ID from the session
     pub fn user_id(&self) -> Option<String> {
         self.user_session.as_ref().map(|s| s.claims.sub.clone())
     }
 }
 
-impl FromRequest for SessionData {
-    type Error = Error;
-    type Future = Ready<Result<Self, Self::Error>>;
+/// Session extension methods
+pub trait SessionExt {
+    /// Store session data
+    fn store_session_data(&self, data: &SessionData) -> Result<(), SessionGetError>;
     
-    fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
-        let session = req.get_session();
-        let session_data = session.get::<SessionData>("session_data")
-            .unwrap_or_else(|_| Some(SessionData::new()))
-            .unwrap_or_else(SessionData::new);
-            
-        ready(Ok(session_data))
-    }
+    /// Clear session data
+    fn clear_session_data(&self) -> Result<(), SessionGetError>;
 }
 
-/// Extension methods for the Session type
+/// Session extension methods for Actix session
 pub trait SessionExt2 {
-    /// Save session data
-    fn store_session_data(&self, data: &SessionData) -> Result<(), Error>;
+    /// Get user from session
+    fn user(&self) -> Result<Option<UserSession>, SessionGetError>;
     
-    /// Clear the session data
-    fn clear_session_data(&self) -> Result<(), Error>;
+    /// Set user in session
+    fn set_user(&self, user: UserSession) -> Result<(), SessionGetError>;
+    
+    /// Remove user from session
+    fn remove_user(&self) -> Result<(), SessionGetError>;
+}
+
+impl SessionExt for Session {
+    fn store_session_data(&self, data: &SessionData) -> Result<(), SessionGetError> {
+        self.insert("session_data", data)
+    }
+    
+    fn clear_session_data(&self) -> Result<(), SessionGetError> {
+        self.remove("session_data");
+        Ok(())
+    }
 }
 
 impl SessionExt2 for Session {
-    fn store_session_data(&self, data: &SessionData) -> Result<(), Error> {
-        self.insert("session_data", data)
-            .map_err(|e| Error::from(AppError::InternalServer(format!("Session error: {}", e))))
+    fn user(&self) -> Result<Option<UserSession>, SessionGetError> {
+        let data: Option<SessionData> = self.get("session_data")?;
+        Ok(data.and_then(|d| d.user_session))
     }
     
-    fn clear_session_data(&self) -> Result<(), Error> {
-        self.remove("session_data");
-        Ok(())
+    fn set_user(&self, user: UserSession) -> Result<(), SessionGetError> {
+        let mut data = self.get::<SessionData>("session_data")?
+            .unwrap_or_else(SessionData::new);
+        data.user_session = Some(user);
+        self.insert("session_data", data)
+    }
+    
+    fn remove_user(&self) -> Result<(), SessionGetError> {
+        let mut data = self.get::<SessionData>("session_data")?
+            .unwrap_or_else(SessionData::new);
+        data.user_session = None;
+        self.insert("session_data", data)
     }
 }

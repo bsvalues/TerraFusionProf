@@ -6,95 +6,80 @@ mod auth;
 
 use std::sync::Arc;
 
-use actix_session::storage::CookieSessionStore;
-use actix_session::SessionMiddleware;
-use actix_web::{web, App, HttpServer, middleware, cookie::Key};
-use actix_web::http::header;
-use dotenv::dotenv;
-use shared::{config::Config, db::Database, ReplitAuth, ReplitAuthConfig};
+use actix_cors::Cors;
+use actix_session::CookieSession;
+use actix_web::{web, App, HttpServer, middleware};
+
+use shared::{
+    auth::{
+        middleware::AuthenticationMiddleware,
+        replit_auth::ReplitAuth,
+    },
+    db::Database,
+    config::Config,
+};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Initialize environment
-    dotenv().ok();
-    env_logger::init();
-    let config = Config::from_env();
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     
-    // Initialize database connection
-    let database = Database::new(&config.database.url)
-        .await
-        .expect("Failed to connect to database");
-        
-    if config.database.run_migrations {
-        database.run_migrations()
-            .await
-            .expect("Failed to run database migrations");
-    }
+    // Load configuration
+    let config = Config::from_env().expect("Failed to load configuration");
     
-    let db = Arc::new(database);
+    // Initialize database
+    let db = Arc::new(Database::connect(&config.database_url).await.expect("Failed to connect to database"));
+    log::info!("Connected to database");
     
     // Initialize Replit Auth
-    let replit_auth_config = ReplitAuthConfig::from_env();
+    let replit_auth_config = shared::auth::replit_auth::ReplitAuthConfig {
+        client_id: config.replit_auth.client_id.clone(),
+        domain: config.replit_auth.domain.clone(),
+        discovery_url: "https://replit.com/oidc".to_string(),
+    };
     let replit_auth = Arc::new(ReplitAuth::new(replit_auth_config));
+    log::info!("Initialized Replit Auth");
     
-    // Set up GraphQL schema
-    let schema = graphql::create_schema(db.clone(), replit_auth.clone());
+    // Create GraphQL schema
+    let schema = web::Data::new(graphql::create_schema(db.clone(), replit_auth.clone()));
     
-    // Generate a random key for session encryption
-    let secret_key = Key::generate();
-    
-    // Create and start the HTTP server
-    log::info!("Starting User Service on {}:{}", config.server.host, config.server.port);
+    // Start HTTP server
+    log::info!("Starting user service on {}:{}", config.host, config.port);
     
     HttpServer::new(move || {
-        // Configure CORS
-        let cors = actix_web::middleware::DefaultHeaders::new()
-            .add((header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"))
-            .add((header::ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, DELETE, OPTIONS"))
-            .add((header::ACCESS_CONTROL_ALLOW_HEADERS, "Content-Type, Authorization"));
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header()
+            .max_age(3600);
             
         App::new()
+            .wrap(middleware::Logger::default())
+            .wrap(cors)
+            .wrap(middleware::NormalizePath::trim())
+            .wrap(CookieSession::signed(&[0; 32]) // In production, use a proper key
+                .secure(false)) // In production, set to true for HTTPS
+            .wrap(AuthenticationMiddleware::new(replit_auth.clone()))
             .app_data(web::Data::new(db.clone()))
             .app_data(web::Data::new(replit_auth.clone()))
-            .app_data(web::Data::new(schema.clone()))
-            // Add session middleware with cookie storage
-            .wrap(
-                SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
-                    .cookie_secure(true)
-                    .cookie_http_only(true)
-                    .build(),
-            )
-            // Add CORS middleware
-            .wrap(cors)
-            // Add logging middleware
-            .wrap(middleware::Logger::default())
-            // Add health check endpoint
-            .route("/health", web::get().to(health_check))
-            // Add API routes
+            .app_data(schema.clone())
             .service(
-                web::scope("/api/v1")
+                web::scope("/auth")
+                    .configure(auth::auth_controller::configure_routes)
+            )
+            .service(
+                web::scope("/api")
                     .configure(api::configure_routes)
             )
-            // Add authentication routes
-            .service(
-                web::scope("/api/auth")
-                    .configure(auth::configure_routes)
-            )
-            // Add GraphQL endpoint
             .service(
                 web::scope("/graphql")
                     .configure(graphql::configure_routes)
             )
+            .service(
+                web::resource("/health")
+                    .route(web::get().to(|| async { "User service is healthy" }))
+            )
     })
-    .bind((config.server.host, config.server.port))?
+    .bind((config.host.as_str(), config.port))?
     .run()
     .await
-}
-
-/// Health check endpoint
-async fn health_check() -> actix_web::HttpResponse {
-    actix_web::HttpResponse::Ok().json(serde_json::json!({
-        "status": "healthy",
-        "service": "user-service"
-    }))
 }
