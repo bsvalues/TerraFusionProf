@@ -1,183 +1,92 @@
-use serde::Deserialize;
 use std::env;
 
-/// Configuration for the TerraFusionPro services
-#[derive(Debug, Clone, Deserialize)]
+use crate::error::{AppError, AppResult};
+
+/// Replit Auth configuration
+#[derive(Debug, Clone)]
+pub struct ReplitAuthConfig {
+    /// Replit client ID
+    pub client_id: String,
+    /// Replit client secret
+    pub client_secret: String,
+    /// Domain for auth callbacks
+    pub domain: String,
+}
+
+/// Application configuration
+#[derive(Debug, Clone)]
 pub struct Config {
-    /// Database configuration
-    pub database: DatabaseConfig,
-    
-    /// Server configuration
-    pub server: ServerConfig,
-    
-    /// Security configuration
-    pub security: SecurityConfig,
-    
-    /// External services configuration
-    pub services: ServicesConfig,
-}
-
-/// Database configuration
-#[derive(Debug, Clone, Deserialize)]
-pub struct DatabaseConfig {
     /// Database URL
-    pub url: String,
-    
-    /// Maximum number of connections in the pool
-    pub max_connections: u32,
-    
-    /// Whether to run migrations automatically
-    pub run_migrations: bool,
-}
-
-/// Server configuration
-#[derive(Debug, Clone, Deserialize)]
-pub struct ServerConfig {
-    /// Host to bind the server to
+    pub database_url: String,
+    /// Host to bind to
     pub host: String,
-    
-    /// Port to listen on
+    /// Port to bind to
     pub port: u16,
-    
-    /// CORS allowed origins
-    pub cors_origins: Vec<String>,
-    
-    /// Whether to enable HTTPS
-    pub use_https: bool,
-}
-
-/// Security configuration
-#[derive(Debug, Clone, Deserialize)]
-pub struct SecurityConfig {
-    /// JWT secret key
+    /// Replit Auth configuration
+    pub replit_auth: ReplitAuthConfig,
+    /// JWT secret
     pub jwt_secret: String,
-    
-    /// JWT token expiration in seconds
-    pub jwt_expiration: u64,
-    
-    /// Refresh token expiration in seconds
-    pub refresh_expiration: u64,
-    
-    /// Password hashing rounds
-    pub password_hash_rounds: u32,
-}
-
-/// External services configuration
-#[derive(Debug, Clone, Deserialize)]
-pub struct ServicesConfig {
-    /// Base URLs for all services
-    pub service_urls: ServiceUrls,
-    
-    /// Third-party API keys
-    pub api_keys: ApiKeys,
-}
-
-/// Service URLs
-#[derive(Debug, Clone, Deserialize)]
-pub struct ServiceUrls {
-    pub api_gateway: String,
-    pub property_service: String,
-    pub user_service: String,
-    pub report_service: String,
-    pub form_service: String,
-    pub analysis_service: String,
-}
-
-/// Third-party API keys
-#[derive(Debug, Clone, Deserialize)]
-pub struct ApiKeys {
-    pub google_maps: Option<String>,
-    pub zillow: Option<String>,
-    pub aws_access_key: Option<String>,
-    pub aws_secret_key: Option<String>,
+    /// Environment (development, production)
+    pub environment: String,
 }
 
 impl Config {
     /// Load configuration from environment variables
-    pub fn from_env() -> Self {
-        let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-        let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| "default_jwt_secret_change_me_in_production".to_string());
-        
+    pub fn from_env() -> AppResult<Self> {
+        let database_url = env::var("DATABASE_URL")
+            .map_err(|_| AppError::Configuration("DATABASE_URL not set".to_string()))?;
+            
         let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-        let port_str = env::var("PORT").unwrap_or_else(|_| "5000".to_string());
-        let port = port_str.parse::<u16>().expect("PORT must be a valid number");
         
-        let max_connections = env::var("DB_MAX_CONNECTIONS")
-            .map(|v| v.parse::<u32>().expect("DB_MAX_CONNECTIONS must be a valid number"))
-            .unwrap_or(10);
+        let port = env::var("PORT")
+            .unwrap_or_else(|_| "5000".to_string())
+            .parse::<u16>()
+            .map_err(|_| AppError::Configuration("PORT must be a number".to_string()))?;
             
-        let run_migrations = env::var("RUN_MIGRATIONS")
-            .map(|v| v.parse::<bool>().expect("RUN_MIGRATIONS must be a boolean"))
-            .unwrap_or(true);
+        let replit_id = env::var("REPL_ID")
+            .map_err(|_| AppError::Configuration("REPL_ID not set".to_string()))?;
             
-        let jwt_expiration = env::var("JWT_EXPIRATION")
-            .map(|v| v.parse::<u64>().expect("JWT_EXPIRATION must be a valid number"))
-            .unwrap_or(3600); // 1 hour default
+        let replit_slug = env::var("REPL_SLUG")
+            .map_err(|_| AppError::Configuration("REPL_SLUG not set".to_string()))?;
             
-        let refresh_expiration = env::var("REFRESH_EXPIRATION")
-            .map(|v| v.parse::<u64>().expect("REFRESH_EXPIRATION must be a valid number"))
-            .unwrap_or(604800); // 1 week default
+        let replit_owner = env::var("REPL_OWNER")
+            .map_err(|_| AppError::Configuration("REPL_OWNER not set".to_string()))?;
             
-        let password_hash_rounds = env::var("PASSWORD_HASH_ROUNDS")
-            .map(|v| v.parse::<u32>().expect("PASSWORD_HASH_ROUNDS must be a valid number"))
-            .unwrap_or(12);
+        // The default domain is based on Replit's standard domain pattern
+        let domain = env::var("REPLIT_DOMAIN")
+            .unwrap_or_else(|_| format!("{}.{}.replit.dev", replit_slug, replit_owner));
             
-        let cors_origins = env::var("CORS_ORIGINS")
-            .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
-            .unwrap_or_else(|_| vec!["*".to_string()]);
+        // In a real application, this should be a proper secret
+        let client_secret = env::var("REPLIT_CLIENT_SECRET")
+            .unwrap_or_else(|_| "placeholder_secret".to_string());
             
-        let use_https = env::var("USE_HTTPS")
-            .map(|v| v.parse::<bool>().expect("USE_HTTPS must be a boolean"))
-            .unwrap_or(false);
+        let jwt_secret = env::var("JWT_SECRET")
+            .unwrap_or_else(|_| "development_jwt_secret".to_string());
             
-        // Service URLs with default values pointing to localhost
-        let api_gateway_url = env::var("API_GATEWAY_URL").unwrap_or_else(|_| "http://localhost:5002".to_string());
-        let property_service_url = env::var("PROPERTY_SERVICE_URL").unwrap_or_else(|_| "http://localhost:5003".to_string());
-        let user_service_url = env::var("USER_SERVICE_URL").unwrap_or_else(|_| "http://localhost:5004".to_string());
-        let form_service_url = env::var("FORM_SERVICE_URL").unwrap_or_else(|_| "http://localhost:5005".to_string());
-        let analysis_service_url = env::var("ANALYSIS_SERVICE_URL").unwrap_or_else(|_| "http://localhost:5006".to_string());
-        let report_service_url = env::var("REPORT_SERVICE_URL").unwrap_or_else(|_| "http://localhost:5007".to_string());
-        
-        // API keys
-        let google_maps_key = env::var("GOOGLE_MAPS_API_KEY").ok();
-        let zillow_key = env::var("ZILLOW_API_KEY").ok();
-        let aws_access_key = env::var("AWS_ACCESS_KEY_ID").ok();
-        let aws_secret_key = env::var("AWS_SECRET_ACCESS_KEY").ok();
-        
-        Self {
-            database: DatabaseConfig {
-                url: database_url,
-                max_connections,
-                run_migrations,
+        let environment = env::var("ENVIRONMENT")
+            .unwrap_or_else(|_| "development".to_string());
+            
+        Ok(Self {
+            database_url,
+            host,
+            port,
+            replit_auth: ReplitAuthConfig {
+                client_id: replit_id,
+                client_secret,
+                domain,
             },
-            server: ServerConfig {
-                host,
-                port,
-                cors_origins,
-                use_https,
-            },
-            security: SecurityConfig {
-                jwt_secret,
-                jwt_expiration,
-                refresh_expiration,
-                password_hash_rounds,
-            },
-            services: ServicesConfig {
-                service_urls: ServiceUrls {
-                    api_gateway: api_gateway_url,
-                    property_service: property_service_url,
-                    user_service: user_service_url,
-                    report_service: report_service_url,
-                    form_service: form_service_url,
-                    analysis_service: analysis_service_url,
-                },
-                api_keys: ApiKeys {
-                    google_maps: google_maps_key,
-                    zillow: zillow_key,
-                    aws_access_key,
-                    aws_secret_key,
-                },
-            },
-        }
+            jwt_secret,
+            environment,
+        })
+    }
+    
+    /// Check if in development environment
+    pub fn is_development(&self) -> bool {
+        self.environment == "development"
+    }
+    
+    /// Check if in production environment
+    pub fn is_production(&self) -> bool {
+        self.environment == "production"
     }
 }

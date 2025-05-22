@@ -1,28 +1,13 @@
-pub mod models;
-pub mod utils;
-pub mod db;
-pub mod error;
-pub mod config;
 pub mod auth;
+pub mod models;
+pub mod error;
+pub mod db;
+pub mod config;
 pub mod repository;
+pub mod utils;
 
-/// Re-export common types for convenience
-pub use error::AppError;
-pub use models::*;
+// Re-export common types for convenience
 pub use auth::replit_auth::ReplitAuth;
-pub use auth::replit_auth::ReplitAuthConfig;
-pub use auth::middleware::AuthenticationRequired;
-pub use auth::session::{SessionData, SessionExt2};
-
-/// Initialize the logging system
-pub fn init_logging() {
-    env_logger::init();
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+pub use db::Database;
+pub use error::{AppError, AppResult};
+pub use config::Config;
